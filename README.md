@@ -42,6 +42,7 @@ An honest comparison — every tool here is good at something:
 | Works over the internet | ✅ (`--tunnel`) | ✅ | ❌ same WiFi | ❌ same WiFi | ✅ |
 | Sender setup | **one file** | website | install both ends | hosted site | app |
 | Account needed | ❌ | upsells Pro | ❌ | ❌ | ✅ |
+| One-tap share after upload | ✅ WhatsApp · Telegram · system sheet | ✅ email + link | ❌ no link exists | ❌ no link exists | ✅ *it is* the chat |
 | Size limit | your disk (10 GB default) | ~2–3 GB free | disk | browser memory | 2 GB/file |
 | Where files live | **your PC only** | their cloud | peer devices | RAM | their cloud |
 | Open source | ✅ MIT | ❌ | ✅ | ✅ | ❌ |
