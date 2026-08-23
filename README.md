@@ -20,6 +20,18 @@ One Python file — that's the whole product.
 
 ---
 
+## 🌐 Try it right now — no install
+
+**Live demo: [https://filebeam.mrkawshikmr.workers.dev](https://filebeam.mrkawshikmr.workers.dev)**
+
+| | Hosted demo (Lite) | Installed (`filebeam.py`) |
+|---|---|---|
+| Max size | **150 MB** | **10 GB** |
+| Where it runs | Cloudflare's edge, free tier | your PC, your rules |
+| Cost | ₹0 | ₹0 |
+
+The demo lane is the full FileBeam experience in miniature — same UI, codes, QR and 60-min self-destruct. For the heavy stuff (10 GB beams), run `filebeam.py` — that's FileBeam unleashed.
+
 ## Why FileBeam?
 
 You have a file on your PC. The other person has WhatsApp and zero patience.
