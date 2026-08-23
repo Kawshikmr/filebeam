@@ -226,6 +226,15 @@ async function lookup(){
  $('rlist').innerHTML='<div class=frow><div class=ext style="background:'+extColor(ext(j.name))+'">'+ext(j.name).toUpperCase()+'</div><div class=nm>'+esc(j.name)+'</div><div class=sz>'+fmt(j.size)+'</div><a class=dl href=/d/'+c+'/raw download="'+esc(j.name)+'">Download</a></div>';
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function togglePhone(){
+ const b=$('phoneBox');
+ if(b.classList.contains('hidden')){
+  const qr=qrcode(0,'M');qr.addData(location.href);qr.make();
+  $('pqr').src=qr.createDataURL(4,6);
+  $('purl').textContent=location.href;
+ }
+ b.classList.toggle('hidden');
+}
 `;
 
 function homePage(maxMb) {
@@ -269,7 +278,12 @@ function homePage(maxMb) {
 <div class=flist id=rlist></div>
 </div>
 </div>
-<p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · Need 10 GB beams? Run the <a href=https://github.com/Kawshikmr/filebeam>free open-source edition</a> on any PC</p>
+<p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · For 10 GB beams run filebeam.py from <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+<button class=mini id=phoneBtn onclick=togglePhone() style="position:fixed;right:16px;bottom:16px;border-radius:99px;z-index:9">Receive on phone?</button>
+<div id=phoneBox class=hidden style="position:fixed;right:16px;bottom:64px;background:rgba(17,20,29,.96);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px;text-align:center;z-index:9">
+<img id=pqr alt="" style="width:150px;background:#fff;border-radius:10px;padding:6px;display:block">
+<div class=note id=purl style="margin-top:8px;max-width:180px;word-break:break-all;color:#c7cbe8"></div>
+</div>
 ${FOOTER}
 <script>
 const MAXBEAM=${maxMb};
