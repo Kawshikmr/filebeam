@@ -1,0 +1,32 @@
+﻿[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filebeam"
+version = "1.0.0"
+description = "Instant zero-dependency peer-to-peer file sharing via terminal and browser"
+readme = "README.md"
+authors = [{ name = "Kawshik", email = "kawshikmr@users.noreply.github.com" }]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Communications :: File Sharing",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
+keywords = ["file-sharing", "p2p", "airdrop-alternative", "zero-dependency", "tunnel", "cli"]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Kawshikmr/filebeam"
+"Live Demo" = "https://filebeam.dpdns.org"
+"Bug Tracker" = "https://github.com/Kawshikmr/filebeam/issues"
+
+[project.scripts]
+filebeam = "filebeam:main"
+
+[tool.setuptools]
+py-modules = ["filebeam"]

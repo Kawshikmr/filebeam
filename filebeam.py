@@ -1,3 +1,7 @@
+﻿# FileBeam - Instant zero-dependency peer-to-peer file sharing
+# Copyright (c) 2026 Kawshik. All rights reserved.
+# Source: https://github.com/Kawshikmr/filebeam
+# Licensed under the MIT License. See LICENSE in the project root.
 import http.server
 import socketserver
 import socket

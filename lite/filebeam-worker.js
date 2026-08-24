@@ -1,8 +1,12 @@
-/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
+﻿/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
+   Copyright (c) 2026 Kawshik. All rights reserved.
+   Source: https://github.com/Kawshikmr/filebeam
+   Licensed under the MIT License.
+
    Single-file, no accounts, no database, no card.
    Files self-destruct in ~60 minutes via native KV TTL.
-
-   Free tier: 100k reads/day × 1k writes/day × 1 GB storage × 25 MB max per value */
+   Free tier: 100k reads/day · 1k writes/day · 1 GB storage · 25 MB max per value
+*/
 
 import PY_EDITION from "./filebeam.py";
 
