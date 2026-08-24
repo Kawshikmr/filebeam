@@ -176,7 +176,7 @@ function renderChips(){
 function addPick(file){
  if(!file)return;
  const tot=PICKED.reduce((a,p)=>a+p.size,0);
- if(PICKED.length>=20)return alert('Up to 20 files per beam');
+ if(PICKED.length>=100)return alert('Up to 100 files per beam');
  if(tot+file.size>MAXBEAM*1048576)return alert('Total must stay under '+MAXBEAM+' MB');
  PICKED.push(file);renderChips();
  $('result').style.display='none';$('go').disabled=false;$('go').style.display='';
@@ -337,7 +337,7 @@ export default {
         if (ct.includes("application/json")) {
           const body = await readJson(request);
           files = Array.isArray(body.files) ? body.files : null;
-          if (!files || !files.length || files.length > 20) return json({ err: "1-20 files required" }, 400);
+          if (!files || !files.length || files.length > 100) return json({ err: "1-100 files required" }, 400);
           let total = 0;
           files = files.map(x => ({
             name: safeName(x.name),
