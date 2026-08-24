@@ -72,7 +72,7 @@ FileBeam removes all of it:
 
 `ash
 # 🔥 Instant one-liner (No clone, no install needed):
-curl -sSL https://filebeam.dpdns.org/run | python3
+curl -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py | python3
 `
 
 Or run directly with Python:
