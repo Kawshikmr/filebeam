@@ -180,9 +180,8 @@ function addPick(file){
  if(tot+file.size>MAXBEAM*1048576)return alert('Total must stay under '+MAXBEAM+' MB');
  PICKED.push(file);renderChips();
  $('result').style.display='none';$('go').disabled=false;$('go').style.display='';
- f.value='';
 }
-function pick(files){for(const x of files)addPick(x)}
+function pick(files){for(const x of files)addPick(x);f.value=''}
 function rm(i){PICKED.splice(i,1);renderChips();if(!PICKED.length)$('go').disabled=true}
 function cp(w,btn){const v=w==='code'?UPL.code:UPL.url;navigator.clipboard.writeText(v);
 btn.textContent='✓ Copied';setTimeout(()=>{btn.textContent=w==='code'?'Copy Code':'Copy Link'},1400)}
