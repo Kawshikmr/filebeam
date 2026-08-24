@@ -141,7 +141,7 @@ const SHELL = (title) => `<!doctype html><html><head><meta charset=utf-8>
 <title>${title}</title>
 <style>${BASE_CSS}</style></head><body>`;
 
-const FOOTER = `<footer>No accounts · No tracking · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer></body></html>`;
+const FOOTER = `<footer>No accounts · No cookies · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer></body></html>`;
 
 function gonePage(msg) {
   return `${SHELL("FileBeam")}
@@ -267,7 +267,7 @@ function togglePhone(){
 }
 `;
 
-function homePage(maxMb) {
+function homePage(maxMb, beamCount) {
   return `${SHELL("FileBeam")}<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <div class=card>
 <div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
@@ -308,6 +308,7 @@ function homePage(maxMb) {
 <div class="err" id=rerr></div>
 <div class=flist id=rlist></div>
 </div>
+${beamCount ? `<div class=note style=text-align:center;margin-top:14px>⚡ ${beamCount} beams served so far</div>` : ""}
 </div>
 <p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> · source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 <button class=mini id=phoneBtn onclick=togglePhone() style="position:fixed;right:16px;bottom:16px;border-radius:99px;z-index:9">Receive on phone?</button>
@@ -325,7 +326,7 @@ ${CLIENT_JS}
 /* ================= worker ================= */
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -399,6 +400,7 @@ export default {
           m.exp = Date.now() + EXPIRE_MS;
           await env.BEAM.put("m:" + code, JSON.stringify(m), { expirationTtl: TTL_S });
         }
+        if (ctx) ctx.waitUntil(bumpStats(env, { beams: 1, files: m.files ? m.files.length : 1, bytes: m.files ? m.files.reduce((a, f) => a + f.size, 0) : m.size }));
         return json({
           ok: true,
           code,
@@ -435,6 +437,7 @@ export default {
 
         await env.BEAM.put("m:" + code, JSON.stringify(manifest), { expirationTtl: TTL_S });
         await env.BEAM.put("d:" + code, buf, { expirationTtl: TTL_S });
+        if (ctx) ctx.waitUntil(bumpStats(env, { beams: 1, files: 1, bytes: buf.byteLength }));
 
         return json({
           ok: true,
@@ -443,6 +446,9 @@ export default {
           msg: `📦 FileBeam: "${name}" — get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
         });
       }
+
+      /* ---- public usage stats ---- */
+      if (path === "/stats") return json(await getStats(env));
 
       /* ---- receiver metadata ---- */
       const mm = path.match(/^\/api\/meta\/([A-Z0-9]{6})$/);
@@ -469,6 +475,7 @@ export default {
           data = await env.BEAM.get(`c:${df[1]}:${fi}:0`, { type: "arrayBuffer" });
           if (!data) return resp(gonePage("This beam vanished."), 410);
         }
+        if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         return new Response(data, { headers: fileHeaders(m, fobj) });
       }
 
@@ -476,6 +483,7 @@ export default {
       if (dr) {
         const m = await getManifest(env, dr[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         let data;
         if (m.files) {
           if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
@@ -509,6 +517,7 @@ export default {
         const m = await getManifest(env, dzz[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
         if (!m.files || !m.done) return resp(gonePage("Zip download works on completed multi-file beams."), 404);
+        if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         try { return await zipResponse(env, dzz[1], m); }
         catch (e) { return resp(gonePage("Could not build the zip — " + e.message), 500); }
       }
@@ -558,7 +567,10 @@ ${FOOTER}`);
       }
 
       /* ---- home ---- */
-      if (path === "/") return resp(homePage(Math.floor(MAX_BEAM / 1048576)));
+      if (path === "/") {
+        const st = await getStats(env);
+        return resp(homePage(Math.floor(MAX_BEAM / 1048576), st.beams || 0));
+      }
 
       return resp(`${SHELL("404")}<div style=min-height:60vh;display:flex;align-items:center;width:100%>
 <div class=card style=text-align:center><h2>🧭 Lost?</h2><a class=btn href="/">Back to FileBeam</a></div>
@@ -568,6 +580,34 @@ ${FOOTER}`);
     }
   },
 };
+
+/* ---- usage counters (privacy-safe, server-side only) ---- */
+let STATS_CACHE = { t: 0, v: null };
+async function bumpStats(env, delta) {
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    const gk = "stat:global", dk = "stat:" + day;
+    const g = JSON.parse((await env.BEAM.get(gk)) || "{}");
+    const d = JSON.parse((await env.BEAM.get(dk)) || "{}");
+    for (const k of ["beams", "files", "bytes", "dls"]) {
+      const v = delta[k] || 0;
+      if (!v) continue;
+      g[k] = (g[k] || 0) + v;
+      d[k] = (d[k] || 0) + v;
+    }
+    await env.BEAM.put(gk, JSON.stringify(g));
+    await env.BEAM.put(dk, JSON.stringify(d), { expirationTtl: 60 * 60 * 24 * 90 });
+    STATS_CACHE = { t: Date.now(), v: g };
+  } catch (e) { /* stats must never break a beam */ }
+}
+async function getStats(env) {
+  if (STATS_CACHE.v && Date.now() - STATS_CACHE.t < 60000) return STATS_CACHE.v;
+  try {
+    const g = JSON.parse((await env.BEAM.get("stat:global")) || "{}");
+    STATS_CACHE = { t: Date.now(), v: g };
+    return g;
+  } catch (e) { return {}; }
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
