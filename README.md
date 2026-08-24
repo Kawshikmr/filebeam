@@ -7,10 +7,12 @@
 No app for the receiver. No account. No upload-to-cloud wait.
 One Python file — that's the whole product.
 
-![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
 ![Size](https://img.shields.io/badge/codebase-one%20file-orange)
+[![Live Demo](https://img.shields.io/badge/%F0%9F%9A%80_live_demo-filebeam.dpdns.org-8A2BE2)](https://filebeam.dpdns.org)
+[![GitHub Stars](https://img.shields.io/github/stars/Kawshikmr/filebeam?style=social)](https://github.com/Kawshikmr/filebeam/stargazers)
 
 ![FileBeam in action](docs/demo.gif)
 
