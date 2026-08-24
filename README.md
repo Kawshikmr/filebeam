@@ -70,25 +70,25 @@ FileBeam removes all of it:
 
 ## ⚡ Quick Start
 
+### 🚀 Option 1: Instant One-Liner (No download needed — works from ANY folder)
+
 `ash
-# 🔥 Instant one-liner (No clone, no install needed):
+# Windows (PowerShell / CMD):
+curl.exe -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py | python
+
+# macOS / Linux:
 curl -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py | python3
 `
 
-Or run directly with Python:
+---
 
-Requires Python 3.8+ (standard library only).
+### 📦 Option 2: Clone & Run Locally
 
 `ash
-# Option 1: Direct execution
+git clone https://github.com/Kawshikmr/filebeam.git
+cd filebeam
 python filebeam.py
-
-# Option 2: Install via pip / pipx
-pip install .
-filebeam
 `
-
-Open the printed URL, drop files, and share the 6-character code or QR code. The receiver taps download — done!
 
 ### 🌍 Transfer Over the Internet (Clickable WhatsApp Links)
 
