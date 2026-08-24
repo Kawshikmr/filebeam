@@ -22,7 +22,7 @@ One Python file — that's the whole product.
 
 ## 🌐 Try it right now — no install
 
-**Live demo: [https://filebeam.mrkawshikmr.workers.dev](https://filebeam.mrkawshikmr.workers.dev)**
+**Live demo: [https://filebeam.dpdns.org](https://filebeam.dpdns.org)** · mirror: [filebeam.mrkawshikmr.workers.dev](https://filebeam.mrkawshikmr.workers.dev)
 
 | | Hosted demo (Lite) | Installed (`filebeam.py`) |
 |---|---|---|
