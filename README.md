@@ -70,6 +70,13 @@ FileBeam removes all of it:
 
 ## ⚡ Quick Start
 
+`ash
+# 🔥 Instant one-liner (No clone, no install needed):
+curl -sSL https://filebeam.dpdns.org/run | python3
+`
+
+Or run directly with Python:
+
 Requires Python 3.8+ (standard library only).
 
 `ash

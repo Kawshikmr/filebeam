@@ -560,7 +560,7 @@ ${FOOTER}`);
       }
 
       /* ---- python edition download (one-click for new users) ---- */
-      if (path === "/filebeam.py") {
+      if (path === "/filebeam.py" || path === "/run" || path === "/install") {
         return new Response(PY_EDITION, {
           headers: {
             "content-type": "text/x-python; charset=utf-8",
