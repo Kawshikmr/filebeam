@@ -156,7 +156,7 @@ const $=id=>document.getElementById(id);
 function show(t){$('cS').classList.toggle('hidden',t!=='s');$('cR').classList.toggle('hidden',t!=='r');
 $('tS').classList.toggle('active',t==='s');$('tR').classList.toggle('active',t==='r')}
 const f=$('f'),drop=$('drop');
-f.onchange=e=>pick(e.target.files[0]);
+ f.onchange=e=>pick(e.target.files);
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
 drop.addEventListener('drop',e=>pick(e.dataTransfer.files[0]));
