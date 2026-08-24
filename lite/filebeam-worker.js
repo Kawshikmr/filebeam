@@ -2,7 +2,9 @@
    Single-file, no accounts, no database, no card.
    Files self-destruct in ~60 minutes via native KV TTL.
 
-   Free tier: 100k reads/day · 1k writes/day · 1 GB storage · 25 MB max per value */
+   Free tier: 100k reads/day × 1k writes/day × 1 GB storage × 25 MB max per value */
+
+import PY_EDITION from "./filebeam.py";
 
 const EXPIRE_MS = 60 * 60 * 1000;
 const TTL_S = 3700;                       /* KV ttl slightly above 60 min */
@@ -307,7 +309,7 @@ function homePage(maxMb) {
 <div class=flist id=rlist></div>
 </div>
 </div>
-<p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · For 10 GB beams run filebeam.py from <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+<p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> · source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 <button class=mini id=phoneBtn onclick=togglePhone() style="position:fixed;right:16px;bottom:16px;border-radius:99px;z-index:9">Receive on phone?</button>
 <div id=phoneBox class=hidden style="position:fixed;right:16px;bottom:64px;background:rgba(17,20,29,.96);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px;text-align:center;z-index:9">
 <img id=pqr alt="" style="width:150px;background:#fff;border-radius:10px;padding:6px;display:block">
@@ -542,6 +544,17 @@ ${body}
 </div>
 <p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 ${FOOTER}`);
+      }
+
+      /* ---- python edition download (one-click for new users) ---- */
+      if (path === "/filebeam.py") {
+        return new Response(PY_EDITION, {
+          headers: {
+            "content-type": "text/x-python; charset=utf-8",
+            "content-disposition": 'attachment; filename="filebeam.py"',
+            "cache-control": "public, max-age=3600",
+          },
+        });
       }
 
       /* ---- home ---- */
