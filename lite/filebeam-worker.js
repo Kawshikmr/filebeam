@@ -42,14 +42,14 @@ async function getManifest(env, code) {
   } catch { return null; }
 }
 
-function streamParts(env, code, parts) {
+function streamParts(env, mkKey, parts) {
   let i = 0;
   return new ReadableStream(
     {
       async pull(controller) {
         try {
           if (i >= parts) { controller.close(); return; }
-          const b = await env.BEAM.get(`c:${code}:${i}`, { type: "arrayBuffer" });
+          const b = await env.BEAM.get(mkKey(i), { type: "arrayBuffer" });
           i++;
           if (!b || !b.byteLength) { controller.error(new Error("part missing")); return; }
           controller.enqueue(b);
@@ -58,6 +58,15 @@ function streamParts(env, code, parts) {
     },
     { highWaterMark: 1 }
   );
+}
+
+function fileHeaders(m, f) {
+  return {
+    "content-type": f.type || "application/octet-stream",
+    "content-length": String(f.size),
+    "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+    "cache-control": "no-store",
+  };
 }
 
 /* ================= UI ================= */
@@ -155,37 +164,52 @@ const extColors={pdf:'#ef4444',jpg:'#f59e0b',jpeg:'#f59e0b',png:'#10b981',gif:'#
 function extColor(e){return extColors[e]||'#6d7cff'}
 function ext(n){return (String(n).split('.').pop()||'bin').toLowerCase().slice(0,4)}
 function fmt(n){return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,n>>10)+' KB'}
-function pick(file){
- if(!file)return;
- if(file.size>MAXBEAM*1048576)return alert('Max '+MAXBEAM+' MB on this demo');
- FILE=file;
- $('chips').innerHTML='<div class=chip><div class=ext style="background:'+extColor(ext(file.name))+'">'+ext(file.name).toUpperCase()+'</div><div class=nm>'+esc(file.name)+'</div><div class=sz>'+fmt(file.size)+'</div><button onclick=clearPick()>&#10005;</button></div>';
- $('chips').classList.remove('hidden');
- $('result').style.display='none';$('go').disabled=false;$('go').style.display='';
+let PICKED=[];
+function renderChips(){
+ $('chips').innerHTML=PICKED.map((p,i)=>'<div class=chip><div class=ext style="background:'+extColor(ext(p.name))+'">'+ext(p.name).toUpperCase()+'</div><div class=nm>'+esc(p.name)+'</div><div class=sz>'+fmt(p.size)+'</div><button onclick=rm('+i+')>&#10005;</button></div>').join('');
+ const tot=PICKED.reduce((a,p)=>a+p.size,0);
+ if(PICKED.length){$('chips').classList.remove('hidden');
+  $('totline').textContent=(PICKED.length>1?PICKED.length+' files · ':'')+fmt(tot)+' of '+MAXBEAM+' MB';
+  $('totline').classList.remove('hidden');
+ }else{$('chips').classList.add('hidden');$('totline').classList.add('hidden')}
 }
-function clearPick(){FILE=null;$('chips').innerHTML='';$('chips').classList.add('hidden');$('go').disabled=true}
+function addPick(file){
+ if(!file)return;
+ const tot=PICKED.reduce((a,p)=>a+p.size,0);
+ if(PICKED.length>=20)return alert('Up to 20 files per beam');
+ if(tot+file.size>MAXBEAM*1048576)return alert('Total must stay under '+MAXBEAM+' MB');
+ PICKED.push(file);renderChips();
+ $('result').style.display='none';$('go').disabled=false;$('go').style.display='';
+ f.value='';
+}
+function pick(files){for(const x of files)addPick(x)}
+function rm(i){PICKED.splice(i,1);renderChips();if(!PICKED.length)$('go').disabled=true}
 function cp(w,btn){const v=w==='code'?UPL.code:UPL.url;navigator.clipboard.writeText(v);
 btn.textContent='✓ Copied';setTimeout(()=>{btn.textContent=w==='code'?'Copy Code':'Copy Link'},1400)}
 function shareWA(){window.open('https://wa.me/?text='+encodeURIComponent(UPL.msg),'_blank')}
 function shareTG(){window.open('https://t.me/share/url?url='+encodeURIComponent(UPL.url)+'&text='+encodeURIComponent('Tap the link to get the file'),'_blank')}
 function nativeShare(btn){if(navigator.share){navigator.share({title:'FileBeam',text:UPL.msg}).catch(()=>{})}else{cp('link',btn)}}
-function reset(){clearPick();$('bar').style.display='none';$('barf').style.width='0%';
+function reset(){PICKED=[];renderChips();FILE=null;$('bar').style.display='none';$('barf').style.width='0%';
 $('result').style.display='none';$('drop').style.display='';$('go').style.display=''}
 function setPct(p){$('barf').style.width=Math.max(0,Math.min(100,p))+'%'}
 async function startBig(){
- const CH=20*1048576;
- let r=await fetch('/api/beam/init?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream')+'&size='+FILE.size,{method:'POST'});
+ let r=await fetch('/api/beam/init',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({files:PICKED.map(p=>({name:p.name,type:p.type||'application/octet-stream',size:p.size}))})});
  let j=await r.json();if(j.err)throw new Error(j.err);
  const code=j.code;
- for(let i=0;i<j.parts;i++){
-  await new Promise((res,rej)=>{
-   const x=new XMLHttpRequest();
-   x.open('POST','/api/beam/chunk?code='+code+'&n='+i);
-   x.upload.onprogress=e=>{if(e.lengthComputable)setPct((i+e.loaded/e.total)/j.parts*100)};
-   x.onload=()=>x.status<300?res():rej(new Error('chunk '+i+' failed'));
-   x.onerror=()=>rej(new Error('network'));
-   x.send(FILE.slice(i*CH,(i+1)*CH));
-  });
+ const tot=PICKED.reduce((a,p)=>a+p.size,0);let sent=0;const CH=20*1048576;
+ for(let i=0;i<PICKED.length;i++){
+  const parts=Math.max(1,Math.ceil(PICKED[i].size/CH));
+  for(let n=0;n<parts;n++){
+   const cs=Math.min(CH,PICKED[i].size-n*CH);
+   await new Promise((res,rej)=>{
+    const x=new XMLHttpRequest();
+    x.open('POST','/api/beam/chunk?code='+code+'&file='+i+'&n='+n);
+    x.upload.onprogress=e=>{if(e.lengthComputable)setPct((sent+e.loaded)/tot*100)};
+    x.onload=()=>{if(x.status<300){sent+=cs;setPct(sent/tot*100);res()}else rej(new Error('chunk failed'))};
+    x.onerror=()=>rej(new Error('network'));
+    x.send(PICKED[i].slice(n*CH,(n+1)*CH));
+   });
+  }
  }
  r=await fetch('/api/beam/finish?code='+code,{method:'POST'});
  j=await r.json();if(j.err)throw new Error(j.err);
@@ -201,8 +225,9 @@ function showDone(done){
  $('qr').src=qr.createDataURL(4,8);
 }
 function start(){
- if(!FILE)return;$('go').disabled=true;$('bar').style.display='block';
- if(FILE.size>20*1048576){startBig().then(showDone).catch(e=>{alert('Beam failed: '+e.message);reset()});return}
+ if(!PICKED.length)return;$('go').disabled=true;$('bar').style.display='block';
+ if(PICKED.length>1||PICKED[0].size>20*1048576){startBig().then(showDone).catch(e=>{alert('Beam failed: '+e.message);reset()});return}
+ FILE=PICKED[0];
  const xhr=new XMLHttpRequest();
  xhr.open('POST','/api/beam?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream'));
  xhr.upload.onprogress=e=>{if(e.lengthComputable)setPct(Math.min(99,e.loaded/e.total*100))};
@@ -223,7 +248,11 @@ async function lookup(){
  let j;
  try{j=await(await fetch('/api/meta/'+c)).json()}catch(e){j={err:'network'}}
  if(j.err){$('rerr').textContent='This code expired or is wrong.';$('rerr').style.display='block';return}
- $('rlist').innerHTML='<div class=frow><div class=ext style="background:'+extColor(ext(j.name))+'">'+ext(j.name).toUpperCase()+'</div><div class=nm>'+esc(j.name)+'</div><div class=sz>'+fmt(j.size)+'</div><a class=dl href=/d/'+c+'/raw download="'+esc(j.name)+'">Download</a></div>';
+ if(j.files){
+  $('rlist').innerHTML=j.files.map((x,i)=>'<div class=frow><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div><a class=dl href=/d/'+c+'/f/'+i+'/raw download="'+esc(x.name)+'">Download</a></div>').join('');
+ }else{
+  $('rlist').innerHTML='<div class=frow><div class=ext style="background:'+extColor(ext(j.name))+'">'+ext(j.name).toUpperCase()+'</div><div class=nm>'+esc(j.name)+'</div><div class=sz>'+fmt(j.size)+'</div><a class=dl href=/d/'+c+'/raw download="'+esc(j.name)+'">Download</a></div>';
+ }
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function togglePhone(){
@@ -247,8 +276,9 @@ function homePage(maxMb) {
 </div>
 
 <div id=cS>
-<div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick a file or drop it here · up to ${maxMb} MB</p><input type=file id=f hidden></div>
+<div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick files or drop them here · up to ${maxMb} MB total</p><input type=file id=f hidden multiple></div>
 <div class="files hidden" id=chips></div>
+<div class="total hidden" id=totline></div>
 <div class=pbar id=bar><div id=barf></div></div>
 <button class=btn id=go disabled onclick=start()>⚡ Beam It</button>
 <div class=result id=result>
@@ -301,34 +331,60 @@ export default {
     try {
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
 
-      /* ---- big-lane: init (chunked upload, up to MAX_BEAM) ---- */
+      /* ---- big-lane: init (chunked upload, multiple files ok, total ≤ MAX_BEAM) ---- */
       if (path === "/api/beam/init" && request.method === "POST") {
-        const name = safeName(url.searchParams.get("name"));
-        const type = (url.searchParams.get("type") || "application/octet-stream").slice(0, 100);
-        const size = Number(url.searchParams.get("size") || 0);
-        if (!size) return json({ err: "empty upload" }, 400);
-        if (size > MAX_BEAM) return json({ err: `too large for this demo (max ${Math.floor(MAX_BEAM / 1048576)} MB)` }, 413);
-        const parts = Math.ceil(size / CHUNK_BYTES);
+        let name, type, size, files;
+        const ct = (request.headers.get("content-type") || "").toLowerCase();
+        if (ct.includes("application/json")) {
+          const body = await readJson(request);
+          files = Array.isArray(body.files) ? body.files : null;
+          if (!files || !files.length || files.length > 20) return json({ err: "1-20 files required" }, 400);
+          let total = 0;
+          files = files.map(x => ({
+            name: safeName(x.name),
+            type: String(x.type || "application/octet-stream").slice(0, 100),
+            size: Number(x.size || 0),
+            parts: 0,
+          }));
+          for (const x of files) {
+            if (!x.size) return json({ err: "empty file in list" }, 400);
+            total += x.size;
+          }
+          if (total > MAX_BEAM) return json({ err: `too large for this demo (max ${Math.floor(MAX_BEAM / 1048576)} MB total)` }, 413);
+          for (const x of files) x.parts = Math.max(1, Math.ceil(x.size / CHUNK_BYTES));
+          size = total;
+          name = files.length > 1 ? `${files.length} files` : files[0].name;
+          type = "multipart/list";
+        } else {
+          name = safeName(url.searchParams.get("name"));
+          type = (url.searchParams.get("type") || "application/octet-stream").slice(0, 100);
+          size = Number(url.searchParams.get("size") || 0);
+          if (!size) return json({ err: "empty upload" }, 400);
+          if (size > MAX_BEAM) return json({ err: `too large for this demo (max ${Math.floor(MAX_BEAM / 1048576)} MB)` }, 413);
+          files = [{ name, type, size, parts: Math.ceil(size / CHUNK_BYTES) }];
+        }
         const code = newCode();
-        const manifest = { name, type, size, parts, done: false, exp: Date.now() + EXPIRE_MS };
+        const manifest = { name, type, size, files, done: false, exp: Date.now() + EXPIRE_MS };
         await env.BEAM.put("m:" + code, JSON.stringify(manifest), { expirationTtl: TTL_S });
-        return json({ ok: true, code, parts });
+        return json({ ok: true, code });
       }
 
-      /* ---- big-lane: one chunk ---- */
+      /* ---- big-lane: one chunk (?code=&file=&n=) ---- */
       if (path === "/api/beam/chunk" && request.method === "POST") {
         const code = url.searchParams.get("code") || "";
+        const fi = Number(url.searchParams.get("file") || 0);
         const n = Number(url.searchParams.get("n"));
         if (!/^[A-Z0-9]{6}$/.test(code) || !Number.isInteger(n)) return json({ err: "bad chunk call" }, 400);
         const m = await getManifest(env, code);
         if (!m) return json({ err: "unknown or expired beam" }, 404);
         if (m.done) return json({ err: "already sealed" }, 409);
-        if (n < 0 || n >= m.parts) return json({ err: "chunk index out of range" }, 400);
+        if (!m.files || fi < 0 || fi >= m.files.length) return json({ err: "file index out of range" }, 400);
+        if (n < 0 || n >= m.files[fi].parts) return json({ err: "chunk index out of range" }, 400);
         const buf = await request.arrayBuffer();
         if (!buf || !buf.byteLength) return json({ err: "empty chunk" }, 400);
         if (buf.byteLength > CHUNK_BYTES + 1048576) return json({ err: "chunk exceeds size limit" }, 413);
-        await env.BEAM.put(`c:${code}:${n}`, buf, { expirationTtl: TTL_S });
-        return json({ ok: true, n });
+        await env.BEAM.put(`c:${code}:${fi}:${n}`, buf, { expirationTtl: TTL_S });
+        return json({ ok: true, file: fi, n });
       }
 
       /* ---- big-lane: seal beam ---- */
@@ -395,15 +451,43 @@ export default {
         return json(m);
       }
 
-      /* ---- raw download ---- */
+      /* ---- raw download: per-file (multi) + legacy single ---- */
+      const df = path.match(/^\/d\/([A-Z0-9]{6})\/f\/(\d+)\/raw$/);
+      if (df) {
+        const m = await getManifest(env, df[1]);
+        if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        if (!m.files) return resp(gonePage("This beam is an older single-file beam — use its original link."), 404);
+        const fi = Number(df[2]);
+        if (fi < 0 || fi >= m.files.length) return resp(gonePage("No such file in this beam."), 404);
+        if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
+        const fobj = m.files[fi];
+        let data;
+        if (fobj.parts > 1) {
+          data = streamParts(env, i => `c:${df[1]}:${fi}:${i}`, fobj.parts);
+        } else {
+          data = await env.BEAM.get(`c:${df[1]}:${fi}:0`, { type: "arrayBuffer" });
+          if (!data) return resp(gonePage("This beam vanished."), 410);
+        }
+        return new Response(data, { headers: fileHeaders(m, fobj) });
+      }
+
       const dr = path.match(/^\/d\/([A-Z0-9]{6})\/raw$/);
       if (dr) {
         const m = await getManifest(env, dr[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
         let data;
+        if (m.files) {
+          if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
+          const f0 = m.files[0];
+          data = f0.parts > 1
+            ? streamParts(env, i => `c:${dr[1]}:0:${i}`, f0.parts)
+            : await env.BEAM.get(`c:${dr[1]}:0:0`, { type: "arrayBuffer" });
+          if (!data) return resp(gonePage("This beam vanished."), 410);
+          return new Response(data, { headers: fileHeaders(m, f0) });
+        }
         if (m.parts > 1) {
           if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
-          data = streamParts(env, dr[1], m.parts);
+          data = streamParts(env, i => `c:${dr[1]}:${i}`, m.parts);
         } else {
           data = await env.BEAM.get("d:" + dr[1], { type: "arrayBuffer" });
           if (!data) return resp(gonePage("This beam vanished."), 410);
