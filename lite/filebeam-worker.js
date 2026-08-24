@@ -139,7 +139,7 @@ const SHELL = (title) => `<!doctype html><html><head><meta charset=utf-8>
 <title>${title}</title>
 <style>${BASE_CSS}</style></head><body>`;
 
-const FOOTER = `<footer>No accounts · No tracking · Files auto-delete in 60 min · Free forever · <a href=https://github.com/Kawshikmr/filebeam>open source</a></footer></body></html>`;
+const FOOTER = `<footer>No accounts · No tracking · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer></body></html>`;
 
 function gonePage(msg) {
   return `${SHELL("FileBeam")}
@@ -159,7 +159,7 @@ const f=$('f'),drop=$('drop');
  f.onchange=e=>pick(e.target.files);
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
-drop.addEventListener('drop',e=>pick(e.dataTransfer.files[0]));
+drop.addEventListener('drop',e=>pick(e.dataTransfer.files));
 const extColors={pdf:'#ef4444',jpg:'#f59e0b',jpeg:'#f59e0b',png:'#10b981',gif:'#10b981',zip:'#8b5cf6',rar:'#8b5cf6',mp4:'#ec4899',mkv:'#ec4899',mp3:'#06b6d4',wav:'#06b6d4',doc:'#3b82f6',docx:'#3b82f6',xls:'#22c55e',xlsx:'#22c55e',exe:'#64748b',py:'#3b82f6',js:'#eab308',html:'#fb923c'};
 function extColor(e){return extColors[e]||'#6d7cff'}
 function ext(n){return (String(n).split('.').pop()||'bin').toLowerCase().slice(0,4)}
@@ -502,24 +502,47 @@ export default {
         });
       }
 
+      /* ---- zip download (multi-file beams) ---- */
+      const dzz = path.match(/^\/d\/([A-Z0-9]{6})\/zip$/);
+      if (dzz) {
+        const m = await getManifest(env, dzz[1]);
+        if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        if (!m.files || !m.done) return resp(gonePage("Zip download works on completed multi-file beams."), 404);
+        try { return await zipResponse(env, dzz[1], m); }
+        catch (e) { return resp(gonePage("Could not build the zip — " + e.message), 500); }
+      }
+
       /* ---- receive page ---- */
       const dp = path.match(/^\/d\/([A-Z0-9]{6})$/);
       if (dp) {
         const m = await getManifest(env, dp[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
-        const kb = Math.max(1, Math.round(m.size / 1024));
-        const sizeTxt = m.size >= 1048576 ? (m.size / 1048576).toFixed(1) + " MB" : kb + " KB";
-        return resp(`${SHELL("FileBeam — incoming")}
-<div class=logo>📦 File<span>Beam</span></div>
-<div class=card style=text-align:center>
-<h2>📥 Incoming beam</h2>
+        let body;
+        if (m.files && m.done) {
+          const rows = m.files.map((f, i) => `<div class=frow><div class=ext style="background:${extColorFor(f.name)}">${extOf(f.name).toUpperCase()}</div><div class=nm>${escapeHtml(f.name)}</div><div class=sz>${fmtSize(f.size)}</div><a class=dl href="/d/${dp[1]}/f/${i}/raw" download="${escapeHtml(f.name)}">Download</a></div>`).join("");
+          body = `<h2>📥 Incoming beam — ${m.files.length} file${m.files.length > 1 ? "s" : ""}</h2>
+<div class=flist style=margin-top:14px;text-align:left>${rows}</div>
+<a class=btn href="/d/${dp[1]}/zip">⬇️ Download All (.zip)</a>`;
+        } else if (m.done) {
+          const kb = Math.max(1, Math.round(m.size / 1024));
+          const sizeTxt = m.size >= 1048576 ? (m.size / 1048576).toFixed(1) + " MB" : kb + " KB";
+          body = `<h2>📥 Incoming beam</h2>
 <div class=meta style=margin-top:18px>
 <div style="font-size:20px;font-weight:700;word-break:break-all">${escapeHtml(m.name)}</div>
 <div style=margin-top:6px>${sizeTxt}</div>
 <div style=margin-top:2px;color:#fbbf24>⏳ expires ${new Date(m.exp).toLocaleTimeString()}</div>
 </div>
-<a class=btn href="/d/${dp[1]}/raw">⬇️ Download now</a>
-</div>${FOOTER}`);
+<a class=btn href="/d/${dp[1]}/raw">⬇️ Download now</a>`;
+        } else {
+          body = `<h2>📥 Incoming beam</h2><p class=note style=margin-top:14px>Still uploading — ask the sender to wait a minute.</p>`;
+        }
+        return resp(`${SHELL("FileBeam — incoming")}
+<div class=logo>📦 File<span>Beam</span></div>
+<div class=card style=text-align:center>
+${body}
+</div>
+<p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+${FOOTER}`);
       }
 
       /* ---- home ---- */
@@ -536,6 +559,54 @@ export default {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---- server-side ext colors for /d pages ---- */
+const EXT_COLORS = { pdf:"#ef4444", jpg:"#f59e0b", jpeg:"#f59e0b", png:"#10b981", gif:"#10b981", zip:"#8b5cf6", rar:"#8b5cf6", mp4:"#ec4899", mkv:"#ec4899", mp3:"#06b6d4", wav:"#06b6d4", doc:"#3b82f6", docx:"#3b82f6", xls:"#22c55e", xlsx:"#22c55e", exe:"#64748b", py:"#3b82f6", js:"#eab308", html:"#fb923c" };
+function extOf(n) { return (String(n).split(".").pop() || "bin").toLowerCase().slice(0, 4); }
+function extColorFor(n) { return EXT_COLORS[extOf(n)] || "#6d7cff"; }
+function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+
+/* ---- store-method ZIP builder (streams one file at a time) ---- */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
+const crc32 = b => { let c = ~0; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return ~c >>> 0; };
+const u16 = v => new Uint8Array([v & 255, (v >>> 8) & 255]);
+const u32 = v => new Uint8Array([v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]);
+function dosDT(d) { const s = d.getUTCSeconds() >> 1, mi = d.getUTCMinutes(), h = d.getUTCHours(), da = d.getUTCDate(), mo = d.getUTCMonth() + 1, y = Math.max(1980, d.getUTCFullYear()) - 1980; return { t: (h << 11 | mi << 5 | s) & 65535, d: (y << 9 | mo << 5 | da) & 65535 }; }
+async function fileBytes(env, code, f, fi) {
+  if (f.parts > 1) {
+    const cs = [];
+    for (let i = 0; i < f.parts; i++) { const b = await env.BEAM.get(`c:${code}:${fi}:${i}`, { type: "arrayBuffer" }); if (!b) throw new Error("missing chunk"); cs.push(new Uint8Array(b)); }
+    const out = new Uint8Array(f.size); let o = 0; for (const c of cs) { out.set(c, o); o += c.length; } return out;
+  }
+  const b = await env.BEAM.get(`c:${code}:${fi}:0`, { type: "arrayBuffer" }); if (!b) throw new Error("missing chunk"); return new Uint8Array(b);
+}
+async function zipResponse(env, code, m) {
+  const enc = new TextEncoder(), now = dosDT(new Date()), central = [];
+  let offset = 0;
+  const cat = a => { let n = 0; for (const x of a) n += x.length; const o = new Uint8Array(n); let p = 0; for (const x of a) { o.set(x, p); p += x.length; } return o; };
+  const rs = new ReadableStream({
+    async start(ctrl) {
+      try {
+        for (let fi = 0; fi < m.files.length; fi++) {
+          const f = m.files[fi], nb = enc.encode(f.name), data = await fileBytes(env, code, f, fi), crc = crc32(data);
+          const lfh = cat([u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(now.t), u16(now.d), u32(crc), u32(data.length), u32(data.length), u16(nb.length), u16(0)]);
+          ctrl.enqueue(cat([lfh, nb, data]));
+          central.push({ nb, crc, len: data.length, off: offset });
+          offset += lfh.length + nb.length + data.length;
+        }
+        const cdStart = offset; const cdParts = [];
+        for (const c of central) {
+          const cdh = cat([u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(now.t), u16(now.d), u32(c.crc), u32(c.len), u32(c.len), u16(c.nb.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(c.off)]);
+          cdParts.push(cdh, c.nb); offset += cdh.length + c.nb.length;
+        }
+        ctrl.enqueue(cat(cdParts));
+        ctrl.enqueue(cat([u32(0x06054b50), u16(0), u16(0), u16(m.files.length), u16(m.files.length), u32(offset - cdStart), u32(cdStart), u16(0)]));
+        ctrl.close();
+      } catch (e) { ctrl.error(e); }
+    }
+  });
+  return new Response(rs, { headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="filebeam-${code}.zip"`, "cache-control": "no-store" } });
 }
 
 function resp(body, status = 200) {
