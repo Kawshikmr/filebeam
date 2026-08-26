@@ -27,7 +27,7 @@ One Python file — that's the whole product.
 **Live web demo:** [https://filebeam.dpdns.org](https://filebeam.dpdns.org)  
 *(Mirror: [filebeam.mrkawshikmr.workers.dev](https://filebeam.mrkawshikmr.workers.dev))*
 
-| Feature | Hosted Web Demo (Lite) | Local App (ilebeam.py) |
+| Feature | Hosted Web Demo (Lite) | Local App (Filebeam.py) |
 |---|---|---|
 | **Max Transfer Size** | **150 MB** (Edge KV lane) | **10 GB+** (Direct disk stream) |
 | **Where it runs** | Cloudflare Edge Worker | Your PC, your rules |
