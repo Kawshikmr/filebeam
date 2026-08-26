@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # ⚡ FileBeam
 
@@ -45,11 +45,12 @@ Every existing tool makes *someone* suffer — app store installs, account signu
 
 FileBeam removes all of it:
 
-- 🚀 **Double-click and go** — Zero install, no env, no pip dependencies. python filebeam.py is the entire setup.
+- 🔒 **Zero-Knowledge End-to-End Encryption** — Files are encrypted client-side using `AES-GCM-256`. The decryption key stays in the URL `#hash` and never touches the server.
+- ⚡ **Direct WebRTC P2P Live Streaming** — Instant browser-to-browser streaming when sender and receiver are open simultaneously, bypassing cloud storage entirely.
+- 📱 **PWA & OS Native Share Target** — Install FileBeam on your phone or PC and send files directly from your native OS "Share" menu.
+- 🚀 **Double-click and go** — Zero install, no virtualenv, no pip dependencies. `python filebeam.py` is the entire local setup.
 - 📱 **Receiver needs nothing but a browser** — Links open directly from WhatsApp, Telegram, iMessage, or phone cameras.
-- 🔒 **Files never leave your machine** — When running locally, nothing sits on third-party cloud servers waiting to leak.
-- ⚡ **LAN-fast, internet-capable** — Blazing fast on the same Wi-Fi; add --tunnel to reach anyone across the globe.
-- 🧹 **Self-cleaning** — Beams auto-delete from memory and disk after 60 minutes.
+- 🧹 **Self-cleaning** — Beams auto-delete from memory, disk, and KV after 60 minutes.
 
 ---
 
@@ -58,12 +59,14 @@ FileBeam removes all of it:
 | Feature | **FileBeam** | AirDrop / QuickShare | LocalSend | Snapdrop | WeTransfer |
 |---|---|---|---|---|---|
 | **Receiver App Required?** | **❌ None (Browser)** | ❌ OS-locked | ✅ App required | ❌ None | ❌ None |
-| **Cross-Platform?** | **✅ iOS / Win / Mac / Android** | ❌ Apple / Android only | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Works Over Internet?** | **✅ Yes (--tunnel)** | ❌ Same room only | ❌ Same Wi-Fi | ❌ Same Wi-Fi | ✅ Yes |
+| **End-to-End Encryption?** | **✅ Zero-Knowledge AES-GCM** | ⚠️ Proprietary | ✅ Yes | ❌ No | ❌ Server decrypts |
+| **WebRTC Direct P2P?** | **✅ Yes (Live fallback to KV)** | ❌ OS-only | ❌ LAN only | ✅ Yes | ❌ Cloud only |
+| **PWA / Native Share Target** | **✅ Yes** | ❌ System only | ❌ No | ❌ No | ❌ No |
+| **Cross-Platform?** | **✅ iOS / Win / Mac / Android / Linux** | ❌ Apple / Android only | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Works Over Internet?** | **✅ Yes (`--tunnel` / Cloud)** | ❌ Same room only | ❌ Same Wi-Fi | ❌ Same Wi-Fi | ✅ Yes |
 | **Account Required?** | **❌ No** | ❌ No | ❌ No | ❌ No | ⚠️ Upsells Pro |
 | **One-Tap Chat Share** | **✅ WhatsApp / Telegram / QR** | ❌ Proprietary | ❌ No link | ❌ No link | ⚠️ Email + Link |
 | **Size Limit** | **Your Disk (10 GB default)** | Device Storage | Device Storage | Browser RAM | 2 GB free cap |
-| **Where Files Live** | **Your PC only** | Peer device | Peer device | RAM | Their cloud servers |
 | **Open Source** | **✅ MIT License** | ❌ Proprietary | ✅ Open Source | ✅ Open Source | ❌ Closed Source |
 
 ---
