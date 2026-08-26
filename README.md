@@ -84,7 +84,7 @@ curl -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py 
 
 ### 📦 Option 2: Clone & Run Locally
 
-`ash
+`bash
 git clone https://github.com/Kawshikmr/filebeam.git
 cd filebeam
 python filebeam.py
@@ -92,7 +92,7 @@ python filebeam.py
 
 ### 🌍 Transfer Over the Internet (Clickable WhatsApp Links)
 
-`ash
+`bash
 python filebeam.py --tunnel
 `
 
