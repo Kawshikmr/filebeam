@@ -1,20 +1,17 @@
-﻿/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
-   Copyright (c) 2026 Kawshik. All rights reserved.
-   Source: https://github.com/Kawshikmr/filebeam
-   Licensed under the MIT License.
-
+/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
    Single-file, no accounts, no database, no card.
    Files self-destruct in ~60 minutes via native KV TTL.
-   Free tier: 100k reads/day · 1k writes/day · 1 GB storage · 25 MB max per value
-*/
 
-import PY_EDITION from "./filebeam.py";
+   Free tier: 100k reads/day × 1k writes/day × 1 GB storage × 25 MB max per value */
+
+const PY_EDITION = "# Download the latest version from https://github.com/Kawshikmr/filebeam";
 
 const EXPIRE_MS = 60 * 60 * 1000;
 const TTL_S = 3700;                       /* KV ttl slightly above 60 min */
 const MAX_SINGLE = 24 * 1024 * 1024;      /* stay under the 25 MB value cap */
-const CHUNK_BYTES = 20 * 1024 * 1024;     /* big-lane chunk size */
-const MAX_BEAM = 150 * 1024 * 1024;       /* hosted ceiling via chunked KV */
+const CHUNK_BYTES = 24 * 1024 * 1024;     /* big-lane chunk size */
+const MAX_BEAM = 500 * 1024 * 1024;       /* hosted ceiling via chunked KV (free KV ~1 GB) */
+const UP_CONC = 4;                        /* parallel chunk uploads: big win on mobile data */
 const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function newCode() {
@@ -132,6 +129,11 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .frow .sz{color:var(--muted);font-size:12px}
 .dl{padding:10px 19px;border-radius:13px;border:none;background:linear-gradient(135deg,#6d7cff,#d946ef);color:#fff;font-size:12px;font-weight:800;cursor:pointer;text-decoration:none;box-shadow:4px 4px 10px rgba(140,110,220,.45),-3px -3px 8px var(--lite)}
 .dl:active{box-shadow:inset 3px 3px 6px rgba(80,50,140,.4)}
+.frow.done{opacity:.5}
+.frow.done .nm{text-decoration:line-through}
+.dl.saved{background:#0ca678}
+.btnrow{display:flex}
+.btnrow .btn{margin:0}
 .hidden{display:none!important}
 .err{color:#d6336c;font-size:13px;text-align:center;margin-bottom:14px;display:none}
 footer{font-size:12px;color:var(--muted);text-align:center;margin-top:26px}
@@ -157,7 +159,7 @@ function gonePage(msg) {
 }
 
 const CLIENT_JS = `
-let FILE=null,UPL=null;
+let FILE=null,UPL=null,E2E_KEY=null,PC=null,DC=null,RCODE=null;
 const $=id=>document.getElementById(id);
 function show(t){$('cS').classList.toggle('hidden',t!=='s');$('cR').classList.toggle('hidden',t!=='r');
 $('tS').classList.toggle('active',t==='s');$('tR').classList.toggle('active',t==='r')}
@@ -185,7 +187,7 @@ function addPick(file){
  if(PICKED.length>=100)return alert('Up to 100 files per beam');
  if(tot+file.size>MAXBEAM*1048576)return alert('Total must stay under '+MAXBEAM+' MB');
  PICKED.push(file);renderChips();
- $('result').style.display='none';$('go').disabled=false;$('go').style.display='';
+ $('result').style.display='none';$('go').disabled=false;$('go').style.display='';$('optRow').classList.remove('hidden');
 }
 function pick(files){for(const x of files)addPick(x);f.value=''}
 function rm(i){PICKED.splice(i,1);renderChips();if(!PICKED.length)$('go').disabled=true}
@@ -194,57 +196,130 @@ btn.textContent='✓ Copied';setTimeout(()=>{btn.textContent=w==='code'?'Copy Co
 function shareWA(){window.open('https://wa.me/?text='+encodeURIComponent(UPL.msg),'_blank')}
 function shareTG(){window.open('https://t.me/share/url?url='+encodeURIComponent(UPL.url)+'&text='+encodeURIComponent('Tap the link to get the file'),'_blank')}
 function nativeShare(btn){if(navigator.share){navigator.share({title:'FileBeam',text:UPL.msg}).catch(()=>{})}else{cp('link',btn)}}
-function reset(){PICKED=[];renderChips();FILE=null;$('bar').style.display='none';$('barf').style.width='0%';
-$('result').style.display='none';$('drop').style.display='';$('go').style.display=''}
+function reset(){PICKED=[];renderChips();FILE=null;E2E_KEY=null;if(PC){PC.close();PC=null}
+$('bar').style.display='none';$('barf').style.width='0%';$('result').style.display='none';$('drop').style.display='';$('go').style.display='';$('p2pBadge').classList.remove('active')}
 function setPct(p){$('barf').style.width=Math.max(0,Math.min(100,p))+'%'}
-async function startBig(){
- let r=await fetch('/api/beam/init',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({files:PICKED.map(p=>({name:p.name,type:p.type||'application/octet-stream',size:p.size}))})});
+
+/* --- E2EE Helpers (Web Crypto) --- */
+function b64url(buf){return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}
+function unb64url(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))}
+async function genKey(){return await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt'])}
+async function encSlice(raw,k){
+ const iv=crypto.getRandomValues(new Uint8Array(12));
+ const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},k,raw);
+ const out=new Uint8Array(12+ct.byteLength);out.set(iv,0);out.set(new Uint8Array(ct),12);
+ return out;
+}
+
+/* --- WebRTC P2P Sender --- */
+async function startP2PSender(code){
+ try{
+  PC=new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}]});
+  DC=PC.createDataChannel('filebeam');
+  DC.onopen=()=>{ $('p2pBadge').classList.add('active'); $('p2pBadge').textContent='P2P Direct Connected'; };
+  DC.onmessage=async e=>{
+   if(e.data==='GET_FILES'){
+    DC.send(JSON.stringify({files:PICKED.map(p=>({name:p.name,size:p.size,type:p.type}))}));
+    for(let i=0;i<PICKED.length;i++){
+     const file=PICKED[i];const ch=64*1024;
+     for(let off=0;off<file.size;off+=ch){
+      const slice=await file.slice(off,off+ch).arrayBuffer();
+      DC.send(slice);
+     }
+    }
+   }
+  };
+  PC.onicecandidate=e=>{
+   if(e.candidate)fetch('/api/signal/ice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,role:'sender',candidate:e.candidate})}).catch(()=>{});
+  };
+  const off=await PC.createOffer();await PC.setLocalDescription(off);
+  await fetch('/api/signal/offer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,sdp:off})});
+  let attempts=0;
+  const poll=setInterval(async()=>{
+   if(!PC||attempts++>40){clearInterval(poll);return}
+   try{
+    const res=await(await fetch('/api/signal/answer?code='+code)).json();
+    if(res.sdp){
+     clearInterval(poll);
+     await PC.setRemoteDescription(new RTCSessionDescription(res.sdp));
+     const ices=await(await fetch('/api/signal/ice?code='+code+'&role=receiver')).json();
+     if(Array.isArray(ices))for(const c of ices)try{await PC.addIceCandidate(new RTCIceCandidate(c))}catch(e){}
+    }
+   }catch(e){}
+  },1500);
+ }catch(e){}
+}
+
+async function startBig(useE2ee,kObj){
+ let r=await fetch('/api/beam/init',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enc:useE2ee,files:PICKED.map(p=>({name:p.name,type:p.type||'application/octet-stream',size:p.size}))})});
  let j=await r.json();if(j.err)throw new Error(j.err);
  const code=j.code;
- const tot=PICKED.reduce((a,p)=>a+p.size,0);let sent=0;const CH=20*1048576;
+ const tot=PICKED.reduce((a,p)=>a+p.size,0);
+ const CH=CHUNK;
+ const tasks=[];
  for(let i=0;i<PICKED.length;i++){
   const parts=Math.max(1,Math.ceil(PICKED[i].size/CH));
-  for(let n=0;n<parts;n++){
-   const cs=Math.min(CH,PICKED[i].size-n*CH);
+  for(let n=0;n<parts;n++)tasks.push({i,n});
+ }
+ let sent=0,qi=0;
+ async function worker(){
+  while(qi<tasks.length){
+   const t=tasks[qi++];
+   let slice=await PICKED[t.i].slice(t.n*CH,(t.n+1)*CH).arrayBuffer();
+   if(useE2ee)slice=await encSlice(slice,kObj);
    await new Promise((res,rej)=>{
     const x=new XMLHttpRequest();
-    x.open('POST','/api/beam/chunk?code='+code+'&file='+i+'&n='+n);
-    x.upload.onprogress=e=>{if(e.lengthComputable)setPct((sent+e.loaded)/tot*100)};
-    x.onload=()=>{if(x.status<300){sent+=cs;setPct(sent/tot*100);res()}else rej(new Error('chunk failed'))};
+    x.open('POST','/api/beam/chunk?code='+code+'&file='+t.i+'&n='+t.n);
+    x.upload.onprogress=e=>{if(e.lengthComputable){const cb=Math.min(CH,PICKED[t.i].size-t.n*CH);setPct((sent+cb*e.loaded/e.total)/tot*100)}};
+    x.onload=()=>{if(x.status<300){sent+=Math.min(CH,PICKED[t.i].size-t.n*CH);setPct(sent/tot*100);res()}else rej(new Error('chunk failed'))};
     x.onerror=()=>rej(new Error('network'));
-    x.send(PICKED[i].slice(n*CH,(n+1)*CH));
+    x.send(slice);
    });
   }
  }
+ await Promise.all(Array.from({length:Math.min(UP_CONC,tasks.length)},worker));
  r=await fetch('/api/beam/finish?code='+code,{method:'POST'});
  j=await r.json();if(j.err)throw new Error(j.err);
  return j;
 }
-function showDone(done){
+function showDone(done,b64k){
+ if(b64k){done.url+='#'+b64k;done.msg+='#'+b64k;$('e2eBadge').classList.remove('hidden')}
  UPL=done;setPct(100);
- $('drop').style.display='none';$('chips').classList.add('hidden');
+ $('drop').style.display='none';$('chips').classList.add('hidden');$('optRow').classList.add('hidden');
  $('go').style.display='none';
  $('dCode').textContent=done.code;$('dLink').textContent=done.url;
  $('result').style.display='block';
  const qr=qrcode(0,'M');qr.addData(done.url);qr.make();
  $('qr').src=qr.createDataURL(4,8);
+ startP2PSender(done.code);
 }
-function start(){
+async function start(){
  if(!PICKED.length)return;$('go').disabled=true;$('bar').style.display='block';
- if(PICKED.length>1||PICKED[0].size>20*1048576){startBig().then(showDone).catch(e=>{alert('Beam failed: '+e.message);reset()});return}
+ const useE2ee=$('chkEnc').checked;let kObj=null,b64k=null;
+ if(useE2ee){
+  kObj=await genKey();
+  const rawK=await crypto.subtle.exportKey('raw',kObj);
+  b64k=b64url(rawK);
+ }
+ if(PICKED.length>1||PICKED[0].size>CHUNK){
+  startBig(useE2ee,kObj).then(d=>showDone(d,b64k)).catch(e=>{alert('Beam failed: '+e.message);reset()});
+  return;
+ }
  FILE=PICKED[0];
+ let body=await FILE.arrayBuffer();
+ if(useE2ee)body=await encSlice(body,kObj);
  const xhr=new XMLHttpRequest();
- xhr.open('POST','/api/beam?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream'));
+ xhr.open('POST','/api/beam?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream')+(useE2ee?'&enc=1':''));
  xhr.upload.onprogress=e=>{if(e.lengthComputable)setPct(Math.min(99,e.loaded/e.total*100))};
  xhr.onload=()=>{
   try{
    const done=JSON.parse(xhr.responseText);
    if(done.err)throw new Error(done.err);
-   showDone(done);
+   showDone(done,b64k);
   }catch(e){alert('Beam failed: '+e.message);reset()}
  };
  xhr.onerror=()=>{alert('Network error');reset()};
- xhr.send(FILE);
+ xhr.send(body);
 }
 async function lookup(){
  const c=$('code').value.trim().toUpperCase();
@@ -253,12 +328,39 @@ async function lookup(){
  let j;
  try{j=await(await fetch('/api/meta/'+c)).json()}catch(e){j={err:'network'}}
  if(j.err){$('rerr').textContent='This code expired or is wrong.';$('rerr').style.display='block';return}
+ RCODE=c;
+ const stos=localStorage.getItem('fb_done_'+c);const done=stos?JSON.parse(stos):[];
  if(j.files){
-  $('rlist').innerHTML=j.files.map((x,i)=>'<div class=frow><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div><a class=dl href=/d/'+c+'/f/'+i+'/raw download="'+esc(x.name)+'">Download</a></div>').join('');
+  $('rlist').innerHTML=j.files.map((x,i)=>{
+   const isD=done.includes(i);
+   return '<div class=frow data-i="'+i+(isD?' done':'')+'"><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div><a class=dl'+(isD?' saved':'')+' href=/d/'+c+'/f/'+i+'/raw download="'+esc(x.name)+'">'+(isD?'&#10004; Saved':'Download')+'</a></div>';
+  }).join('');
+  $('dlrow').classList.remove('hidden');
  }else{
   $('rlist').innerHTML='<div class=frow><div class=ext style="background:'+extColor(ext(j.name))+'">'+ext(j.name).toUpperCase()+'</div><div class=nm>'+esc(j.name)+'</div><div class=sz>'+fmt(j.size)+'</div><a class=dl href=/d/'+c+'/raw download="'+esc(j.name)+'">Download</a></div>';
  }
+ $('rlist').onclick=e=>{
+  if(e.target.classList.contains('dl')){
+   const row=e.target.closest('.frow');if(!row)return;
+   markDl(row,Number(row.dataset.i||0));
+  }
+ };
 }
+function markDl(row,i){
+ const st=localStorage.getItem('fb_done_'+RCODE);const d=st?JSON.parse(st):[];
+ if(!d.includes(i)){d.push(i);localStorage.setItem('fb_done_'+RCODE,JSON.stringify(d))}
+ if(!row.classList.contains('done')){row.classList.add('done');const a=row.querySelector('.dl');if(a){a.classList.add('saved');a.innerHTML='&#10004; Saved'}}
+}
+}
+function dlAllEach(){
+ if(!RCODE)return;
+ const rows=document.querySelectorAll('#rlist .frow');
+ rows.forEach(row=>{
+  const i=Number(row.dataset.i||0);
+  markDl(row,i);
+ });
+}
+function dlAllZip(){if(RCODE)location.href='/d/'+RCODE+'/zip'}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function togglePhone(){
  const b=$('phoneBox');
@@ -284,12 +386,14 @@ function homePage(maxMb, beamCount) {
 <div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick files or drop them here · up to ${maxMb} MB total</p><input type=file id=f hidden multiple></div>
 <div class="files hidden" id=chips></div>
 <div class="total hidden" id=totline></div>
+<div class="optrow hidden" id=optRow><label><input type=checkbox id=chkEnc> Encrypt files (E2EE)</label><span style="font-size:11px;color:#8a90b8">Zero-knowledge AES-256</span></div>
 <div class=pbar id=bar><div id=barf></div></div>
 <button class=btn id=go disabled onclick=start()>⚡ Beam It</button>
 <div class=result id=result>
 <div class=lbl>Your Code</div>
 <div class=code id=dCode></div>
 <div class=url id=dLink></div>
+<div class="badge-row" style="justify-content:center;margin-bottom:12px"><span class="badge hidden" id=e2eBadge style="color:#10b981">🔒 E2EE Encrypted</span><span class="badge" id=p2pBadge>P2P</span></div>
 <div class=copyrow>
 <button class=mini id=bCode onclick=cp('code',this)>Copy Code</button>
 <button class=mini id=bLink onclick=cp('link',this)>Copy Link</button>
@@ -311,10 +415,14 @@ function homePage(maxMb, beamCount) {
 <button class=btn onclick=lookup()>Fetch Files</button>
 <div class="err" id=rerr></div>
 <div class=flist id=rlist></div>
+<div id=dlrow class="btnrow hidden" style=margin-top:14px;justify-content:space-between>
+<a class="btn ghost" href="javascript:dlAllEach()" style=width:48%>Download All</a>
+<a class="btn ghost" href="javascript:dlAllZip()" style=width:48%>Download All (zip)</a>
+</div>
 </div>
 ${beamCount ? `<div class=note style=text-align:center;margin-top:14px>⚡ ${beamCount} beams served so far</div>` : ""}
 </div>
-<p class=note style=text-align:center;margin-top:18px>Demo lane (150 MB) · Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> · source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+<p class=note style=text-align:center;margin-top:18px>Demo lane (${maxMb} MB) · Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> · source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 <button class=mini id=phoneBtn onclick=togglePhone() style="position:fixed;right:16px;bottom:16px;border-radius:99px;z-index:9">Receive on phone?</button>
 <div id=phoneBox class=hidden style="position:fixed;right:16px;bottom:64px;background:rgba(17,20,29,.96);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px;text-align:center;z-index:9">
 <img id=pqr alt="" style="width:150px;background:#fff;border-radius:10px;padding:6px;display:block">
@@ -323,6 +431,8 @@ ${beamCount ? `<div class=note style=text-align:center;margin-top:14px>⚡ ${bea
 ${FOOTER}
 <script>
 const MAXBEAM=${maxMb};
+const CHUNK=${CHUNK_BYTES};
+const UPCONC=${UP_CONC};
 ${CLIENT_JS}
 </script></body></html>`;
 }
@@ -533,10 +643,30 @@ export default {
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
         let body;
         if (m.files && m.done) {
-          const rows = m.files.map((f, i) => `<div class=frow><div class=ext style="background:${extColorFor(f.name)}">${extOf(f.name).toUpperCase()}</div><div class=nm>${escapeHtml(f.name)}</div><div class=sz>${fmtSize(f.size)}</div><a class=dl href="/d/${dp[1]}/f/${i}/raw" download="${escapeHtml(f.name)}">Download</a></div>`).join("");
+          const rows = m.files.map((f, i) => `<div class=frow data-i="${i}"><div class=ext style="background:${extColorFor(f.name)}">${extOf(f.name).toUpperCase()}</div><div class=nm>${escapeHtml(f.name)}</div><div class=sz>${fmtSize(f.size)}</div><a class=dl href="/d/${dp[1]}/f/${i}/raw" download="${escapeHtml(f.name)}">Download</a></div>`).join("");
           body = `<h2>📥 Incoming beam — ${m.files.length} file${m.files.length > 1 ? "s" : ""}</h2>
 <div class=flist style=margin-top:14px;text-align:left>${rows}</div>
-<a class=btn href="/d/${dp[1]}/zip">⬇️ Download All (.zip)</a>`;
+<div class=btnrow style=margin-top:14px;justify-content:space-between>
+<a class="btn ghost" href="javascript:dlEach()" style=width:48%>⬇️ Download All</a>
+<a class="btn ghost" href="/d/${dp[1]}/zip" style=width:48%>⬇️ Download All (.zip)</a>
+</div>
+<script>
+const FB=location.pathname.slice(3,9);
+const done=new Set(JSON.parse(localStorage.getItem('fb_done_'+FB)||'[]'));
+document.querySelectorAll('.frow').forEach((r,i)=>{if(done.has(i))mark(i)});
+function mark(i){done.add(i);localStorage.setItem('fb_done_'+FB,JSON.stringify([...done]));const r=document.querySelector('.frow[data-i="'+i+'"]');if(r){r.classList.add('done');const a=r.querySelector('.dl');a.classList.add('saved');a.textContent='✓ Saved'}}
+document.addEventListener('click',e=>{if(e.target.classList.contains('dl')){const r=e.target.closest('.frow');if(r)mark(Number(r.dataset.i))}},true);
+function dlEach(){
+ const rows=document.querySelectorAll('.frow');
+ rows.forEach((r,i)=>{
+  mark(i);
+  const a=document.createElement('a');
+  a.href=r.querySelector('.dl').getAttribute('href');
+  a.download=r.querySelector('.dl').getAttribute('download')||'';
+  document.body.appendChild(a);a.click();a.remove();
+ });
+}
+</script>`;
         } else if (m.done) {
           const kb = Math.max(1, Math.round(m.size / 1024));
           const sizeTxt = m.size >= 1048576 ? (m.size / 1048576).toFixed(1) + " MB" : kb + " KB";
@@ -560,7 +690,7 @@ ${FOOTER}`);
       }
 
       /* ---- python edition download (one-click for new users) ---- */
-      if (path === "/filebeam.py" || path === "/run" || path === "/install") {
+      if (path === "/filebeam.py") {
         return new Response(PY_EDITION, {
           headers: {
             "content-type": "text/x-python; charset=utf-8",

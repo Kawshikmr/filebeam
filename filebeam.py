@@ -1,7 +1,3 @@
-﻿# FileBeam - Instant zero-dependency peer-to-peer file sharing
-# Copyright (c) 2026 Kawshik. All rights reserved.
-# Source: https://github.com/Kawshikmr/filebeam
-# Licensed under the MIT License. See LICENSE in the project root.
 import http.server
 import socketserver
 import socket
@@ -23,7 +19,7 @@ import zipfile
 HOST = "0.0.0.0"
 PORT = 9348
 TTL_SECONDS = 60 * 60
-CHUNK = 256 * 1024
+CHUNK = 1 * 1024 * 1024
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 MAX_TOTAL = 10 * 1024 * 1024 * 1024
 
@@ -332,6 +328,10 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .frow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .frow .sz{color:var(--muted);font-size:12px}
 .dl{padding:10px 19px;border-radius:13px;border:none;background:linear-gradient(135deg,#6d7cff,#d946ef);color:#fff;font-size:12px;font-weight:800;cursor:pointer;text-decoration:none;box-shadow:4px 4px 10px rgba(140,110,220,.45),-3px -3px 8px var(--lite)}
+.frow.done{opacity:.55}
+.frow.done .nm{text-decoration:line-through}
+.dl.saved{background:#0ca678}
+.dl.saved:active{box-shadow:inset 3px 3px 6px rgba(0,80,60,.4)}
 .dl:active{box-shadow:inset 3px 3px 6px rgba(80,50,140,.4)}
 .hidden{display:none!important}
 .err{color:#d6336c;font-size:13px;text-align:center;margin-bottom:14px;display:none}
@@ -390,7 +390,8 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 </div>
 <button class="btn" onclick="doLookup()">Fetch Files</button>
 <div class="flist hidden" id="rlist" style="margin-top:20px"></div>
-<button class="btn ghost hidden" id="dlAll" onclick="dlAll()">Download All (zip)</button>
+<button class="btn ghost hidden" id="dlAll" onclick="dlAll()">Download All</button>
+<button class="btn ghost hidden" id="dlAllZip" onclick="dlAllZip()" style="margin-top:8px">Download All (zip)</button>
 </div>
 </div>
 
@@ -399,10 +400,11 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 <img id="pqr" alt="" style="width:150px;background:#fff;border-radius:10px;padding:6px;display:block">
 <div class="note" id="purl" style="margin-top:8px;max-width:180px;word-break:break-all"></div>
 </div>
+<div style="text-align:center;margin-top:20px;font-size:12px;color:var(--muted)">Open source by <a href="https://github.com/Kawshikmr/filebeam" target="_blank" rel="noopener" style="color:#6d5bd0;font-weight:800;text-decoration:none">Kawshikmr/filebeam</a> &middot; Files auto-delete in 60 min</div>
 
 <script>
 const $=id=>document.getElementById(id);
-let picked=[],sid=null,RCODE=null;
+let picked=[],sid=null,RCODE=null,RFILES=[];
 const extColors={pdf:'#ef4444',jpg:'#f59e0b',jpeg:'#f59e0b',png:'#10b981',gif:'#10b981',zip:'#8b5cf6',rar:'#8b5cf6',mp4:'#ec4899',mkv:'#ec4899',mp3:'#06b6d4',wav:'#06b6d4',doc:'#3b82f6',docx:'#3b82f6',xls:'#22c55e',xlsx:'#22c55e',exe:'#64748b',py:'#3b82f6',js:'#eab308',html:'#fb923c'};
 function ext(n){const p=n.split('.');return p.length>1?p.pop().toLowerCase():'?'}
 function extColor(e){return extColors[e]||'#6d7cff'}
@@ -454,18 +456,29 @@ function doSend(direct){
 if(!picked.length)return;
 $('sendBtn').disabled=true;$('sendBtn').textContent='Beaming...';
 $('pb').style.display='block';$('pt').style.display='block';
-const total=picked.reduce((a,f)=>a+f.size,0);let sent=0;
-const next=i=>{
-if(i>=picked.length){finish();return}
-const f=picked[i];const x=new XMLHttpRequest();
+const total=picked.reduce((a,f)=>a+f.size,0);let done=0;
+const CONC=3;
+let qi=0;
+function tick(){
+const sent=done;const f=picked[qi];
+if(f){$('pt').textContent=`Uploading ${f._rel||f.name} - ${done}/${picked.length}`}
+$('pbf').style.width=(done/total*100)+'%';
+}
+function worker(){
+while(qi<picked.length){
+const i=qi;const f=picked[i];qi++;
+const x=new XMLHttpRequest();
 x.open('POST','/api/upload',true);
 x.setRequestHeader('X-File-Name',encodeURIComponent(f._rel||f.name));
 if(sid)x.setRequestHeader('X-Beam-Sid',sid);
-x.upload.onprogress=e=>{const overall=sent+e.loaded;$('pbf').style.width=(overall/total*100)+'%';$('pt').textContent=`${fmt(overall)} / ${fmt(total)}`};
-x.onload=()=>{if(x.status===200){const r=JSON.parse(x.responseText);sid=r.sid;sent+=f.size;next(i+1)}else{fail('Upload failed ('+x.status+')')}};
+x.onload=()=>{if(x.status===200){const r=JSON.parse(x.responseText);sid=r.sid;done+=f.size;tick();worker()}else{fail('Upload failed ('+x.status+')')}};
 x.onerror=()=>fail('Connection lost');
-x.send(f)};
-next(0);
+x.send(f);
+return;
+}
+if(done>=total)finish();
+}
+worker();
 function fail(m){$('pt').textContent=m;$('sendBtn').disabled=false;$('sendBtn').textContent='Beam It'}
 function finish(){
 fetch('/api/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sid:sid,direct:direct})})
@@ -535,15 +548,44 @@ const e=ext(f.name);
 const ex=document.createElement('div');ex.className='ext';ex.style.background=extColor(e);ex.textContent=e.slice(0,4).toUpperCase();
 const nm=document.createElement('div');nm.className='nm';nm.textContent=f.name;
 const sz=document.createElement('div');sz.className='sz';sz.textContent=fmt(f.size);
-const a=document.createElement('a');a.className='dl';a.href='/api/get/'+code+'/'+i;a.download=f.name.split('/').pop();a.textContent='Get';
+RCODE=code;RFILES=r.files;
+const done=dlDone();
+const l=$('rlist');l.innerHTML='';
+r.files.forEach((f,i)=>{
+const d=document.createElement('div');d.className='frow';d.dataset.i=i;
+const e=ext(f.name);
+const ex=document.createElement('div');ex.className='ext';ex.style.background=extColor(e);ex.textContent=e.slice(0,4).toUpperCase();
+const nm=document.createElement('div');nm.className='nm';nm.textContent=f.name;
+const sz=document.createElement('div');sz.className='sz';sz.textContent=fmt(f.size);
+const a=document.createElement('a');a.className='dl';a.href='/api/get/'+code+'/'+i;a.download=f.name.split('/').pop();
+if(done.has(i)){a.textContent='Saved';a.classList.add('saved');d.classList.add('done')}else{a.textContent='Get';a.onclick=()=>markDl(i)}
 const prev=document.createElement('button');prev.className='mini prev';prev.textContent='Preview';prev.onclick=(ev)=>{ev.preventDefault();previewFile(code,i,f.name)};
 d.append(ex,nm,sz,a,prev);
 l.appendChild(d)});
 l.classList.remove('hidden');
-$('dlAll').classList.remove('hidden');
+$('dlallrow').classList.remove('hidden');
 }).catch(()=>$('rerr').textContent='Connection failed');
 }
-function dlAll(){if(RCODE)location.href='/api/zip/'+RCODE}
+function dlDone(){try{return new Set(JSON.parse(localStorage.getItem('fb_done_'+RCODE)||'[]'))}catch(e){return new Set()}}
+function markDl(i){
+const s=dlDone();s.add(i);
+localStorage.setItem('fb_done_'+RCODE,JSON.stringify([...s]));
+const row=document.querySelector('#rlist .frow[data-i="'+i+'"]');
+if(row){row.classList.add('done');const b=row.querySelector('.dl');b.textContent='Saved';b.classList.add('saved')}
+}
+function dlAll(){
+if(!RCODE||!RFILES)return;
+RFILES.forEach((f,i)=>{
+const d=document.createElement('a');d.href='/api/get/'+RCODE+'/'+i;d.download=f.name.split('/').pop();
+document.body.appendChild(d);d.click();d.remove();
+markDl(i)});
+flashMsg('Downloading each file separately - your browser may ask to allow multiple downloads');
+}
+function dlAllZip(){if(RCODE)location.href='/api/zip/'+RCODE}
+function flashMsg(t){
+const m=$('rerr');m.style.display='block';m.style.color='#0ca678';m.textContent=t;
+setTimeout(()=>{m.style.display='none'},3500);
+}
 function dl(code,i,f,btn,ev){
 if(f.size>314572800)return;
 ev.preventDefault();
@@ -859,6 +901,11 @@ def main():
     args = sys.argv[1:]
     lan_only = "--lan" in args
     tunnel = not lan_only
+    custom_url = None
+    if "--url" in args:
+        i = args.index("--url")
+        if i + 1 < len(args):
+            custom_url = args[i + 1].rstrip("/")
     if "--port" in args:
         i = args.index("--port")
         if i + 1 < len(args):
@@ -873,6 +920,10 @@ def main():
                 MAX_TOTAL = int(float(args[i + 1]) * 1024 * 1024 * 1024)
             except ValueError:
                 print("  Invalid --max value, using default")
+    if custom_url:
+        DISPLAY_URL = custom_url
+        BASE_URL = custom_url
+        TUNNEL_ON = False
     threading.Thread(target=cleanup_loop, daemon=True).start()
     srv = Server((HOST, PORT), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -886,6 +937,10 @@ def main():
     DISPLAY_URL = mdns_base if mdns else base
     BASE_URL = base
     TUNNEL_ON = tunnel
+    if custom_url:
+        DISPLAY_URL = custom_url
+        BASE_URL = custom_url
+        TUNNEL_ON = False
     print("")
     print("  FileBeam is running")
     print(f"  Local:   http://localhost:{PORT}")
@@ -895,7 +950,7 @@ def main():
     else:
         print(f"  LAN:     {base}")
     proc = None
-    if tunnel:
+    if tunnel and not custom_url:
         print("  Starting cloudflared tunnel (share THIS link)...")
         try:
             logf = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
@@ -934,10 +989,12 @@ def main():
             threading.Thread(target=watch, daemon=True).start()
         except FileNotFoundError:
             print("  cloudflared not found - falling back to LAN-only links")
+    if custom_url:
+        print(f"  Public:  {custom_url}")
+        print("  Share this link. (Route filebeam.dpdns.org to this PC yourself, e.g. a cloudflared named tunnel.)")
     print("")
     print("  Open the URL in a browser. First Windows run: allow firewall access.")
     print("  Codes expire in 60 minutes. Ctrl+C to stop.")
-    print("")
     threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
     try:
         while True:

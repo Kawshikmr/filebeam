@@ -1,4 +1,4 @@
-# Sending 150 MB Files on Cloudflare Workers — With a Database That Only Holds 25 MB
+# Sending 500 MB Files on Cloudflare Workers — With a Database That Only Holds 25 MB
 
 *How FileBeam chunks big uploads into Workers KV pieces, streams them back as one file, and zips multi-file beams — all on the free tier.*
 
@@ -17,10 +17,10 @@ So FileBeam does what real databases have done forever: **split, store, reassemb
 
 ## The chunking design
 
-An upload larger than 20 MB never touches KV as one blob. Instead:
+An upload larger than 24 MB never touches KV as one blob. Instead:
 
 1. **Init** — the browser tells the worker what's coming: name, type, size.
-   The worker computes how many 20 MB parts the file needs and mints a 6-character code.
+   The worker computes how many 24 MB parts the file needs and mints a 6-character code.
    A *manifest* lands in KV describing the whole beam.
 
 ```json
@@ -32,7 +32,7 @@ An upload larger than 20 MB never touches KV as one blob. Instead:
 }
 ```
 
-2. **Chunk upload** — the browser slices the file locally (`Blob.slice`) and PUTs each piece:
+2. **Chunk upload (parallel)** — the browser slices the file locally (`Blob.slice`) and PUTs up to **4 chunks at once** over HTTP/2, so big beams ride mobile data much faster than a single stream:
 
 ```
 POST /api/beam/chunk?code=RW4AKP&file=0&n=0..3   →  c:RW4AKP:0:0 … :3
@@ -61,9 +61,9 @@ function streamParts(env, mkKey, parts) {
 
 No temp files, no double-buffering, and the receiver sees a normal byte-perfect download — verified with SHA-256 comparisons up to 30 MB during development.
 
-## Multi-file beams and the ZIP trick
+## Multi-file beams: ZIP + per-file Download All
 
-The manifest naturally grew into an array of files (up to 100, 150 MB total). Receivers get a clean file list — plus a **Download All (.zip)** button.
+The manifest naturally grew into an array of files (up to 100, 500 MB total). Receivers get a clean file list — plus **Download All** (each file, one per stream) and **Download All (.zip)**. Each downloaded file is ticked off and remembered in the browser via localStorage, so on a big transfer you always know what you've already grabbed.
 
 Building that zip inside a Worker — with no libraries allowed — meant writing a minimal **STORE-method ZIP writer**: local headers, CRC32 table, central directory, EOCD. ~40 lines total, streamed file-by-file so memory stays flat even near the size cap.
 
@@ -81,19 +81,19 @@ async function* zipParts(files) {
 
 Windows Explorer, macOS Archive Utility and Linux `unzip` all accept it — tested against real extraction, not just byte equality.
 
-## Why 150 MB is the honest free-tier ceiling
+## Why 500 MB is the honest free-tier ceiling
 
-| Resource | Free allowance | Cost per 150 MB beam |
+| Resource | Free allowance | Cost per 500 MB beam |
 |---|---|---|
-| KV writes | 1,000/day | ~9 (manifest + 8 parts) |
+| KV writes | 1,000/day | ~22 (manifest + 21 parts) |
 | KV storage pool | 1 GB | cleared by TTL in ~60 min |
-| Reads | 100,000/day | 8 per download |
+| Reads | 100,000/day | 21 per download |
 
-~110 full-size beams/day fits comfortably. TTLs do the garbage collection — expired beams simply evaporate, which doubles as the privacy feature.
+~40 full-size beams/day fits comfortably. TTLs do the garbage collection — expired beams simply evaporate, which doubles as the privacy feature.
 
 ## What the single file buys you
 
-Everything above lives in one `worker.js` (~660 lines, zero dependencies). The companion `filebeam.py` brings the same UI to your own machine with a 10 GB cap and a Cloudflare Tunnel public link — also dependency-free.
+Everything above lives in one `worker.js` (~800 lines, zero dependencies). The companion `filebeam.py` brings the same UI to your own machine with a 10 GB cap and a Cloudflare Tunnel public link — also dependency-free.
 
 Try it: [https://filebeam.dpdns.org](https://filebeam.dpdns.org) · star/fork: [github.com/Kawshikmr/filebeam](https://github.com/Kawshikmr/filebeam)
 

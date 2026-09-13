@@ -1,0 +1,9 @@
+name = "filebeam"
+main = "filebeam-worker.js"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "9654d54493632c69c60d956802a7365d"
+
+[[kv_namespaces]]
+binding = "BEAM"
+id = "d5d84179cddd4e0994a654051e67b89e"

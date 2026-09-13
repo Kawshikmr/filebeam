@@ -5,12 +5,13 @@ No accounts · no database · no server · files self-destruct in 60 minutes.
 
 | | Lite (this folder) | Full (`filebeam.py`) |
 |---|---|---|
-| Max beam size | **150 MB** (auto-chunked) | **10 GB** |
+| Max beam size | **500 MB** (auto-chunked, parallel upload) | **10 GB** |
 | Runs on | Cloudflare's edge — free tier | any PC with Python |
 | Receiver needs | just a link or 6-char code | just a browser on your WiFi/tunnel |
 | Cost | ₹0 forever | ₹0 forever |
 
-**Free-tier headroom:** ~140 big beams/day, 1 GB live storage churning hourly.
+**Free-tier headroom:** ~40 big beams/day, 1 GB live storage churning hourly.
+Parallel chunk upload (4 streams) plus Download All (per-file or `.zip`) and a per-file "downloaded" tick that survives page reloads (localStorage).
 
 ## Deploy your own lane in 2 minutes
 
