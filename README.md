@@ -30,6 +30,7 @@ One Python file — that's the whole product.
 |---|---|---|
 | Max size | **500 MB** | **10 GB** |
 | Where it runs | Cloudflare's edge, free tier | your PC, your rules |
+| Encryption | AES-GCM-256 (zero-knowledge) | local network |
 | Cost | ₹0 | ₹0 |
 
 The demo lane is the full FileBeam experience in miniature — same UI, codes, QR and 60-min self-destruct. For the heavy stuff (10 GB beams), run `filebeam.py` — that's FileBeam unleashed.
@@ -42,8 +43,10 @@ FileBeam removes all of it:
 
 - 🖱️ **Double-click and go** — no install, no venv, no config. `python filebeam.py` is the entire setup.
 - 📲 **Receiver needs nothing but a browser** — the link is clickable straight out of WhatsApp or Telegram.
-- 🔒 **Files never leave your machine** — nothing sits on someone else's cloud waiting to expire or leak.
-- 🚀 **LAN-fast, internet-capable** — instant on the same WiFi; add `--tunnel` to reach anyone anywhere.
+- 🔒 **Zero-knowledge end-to-end encryption** — the demo lane encrypts files client-side with AES-GCM-256; the key stays in the URL `#hash` and never touches the server.
+- ⚡ **Direct WebRTC P2P live streaming** — instant browser-to-browser streaming when sender and receiver are open at the same time, bypassing the cloud entirely.
+- 📱 **PWA & OS native share target** — install FileBeam on your phone or PC and send files straight from the native "Share" menu.
+- 🚀 **Parallel upload** — big files split into chunks and stream up concurrently, so mobile data stays saturated.
 - ⏳ **Self-cleaning** — beams auto-delete after 60 minutes. No trash drawer of old transfers.
 
 ## FileBeam vs the usual suspects
@@ -53,11 +56,14 @@ An honest comparison — every tool here is good at something:
 | | **FileBeam** | WeTransfer | LocalSend | Snapdrop | Telegram |
 |---|---|---|---|---|---|
 | Receiver must install | **nothing** | nothing | its app | nothing | its app |
+| End-to-End Encryption | **✅ AES-GCM (demo)** | ⚠️ Proprietary | ✅ | ❌ | ❌ server decrypts |
+| WebRTC Direct P2P | **✅** | ❌ | ❌ LAN only | ✅ | ❌ cloud only |
+| PWA / Native Share | **✅** | ❌ | ❌ | ❌ | ❌ |
 | Works over the internet | ✅ (`--tunnel`) | ✅ | ❌ same WiFi | ❌ same WiFi | ✅ |
 | Sender setup | **one file** | website | install both ends | hosted site | app |
 | Account needed | ❌ | upsells Pro | ❌ | ❌ | ✅ |
 | One-tap share after upload | ✅ WhatsApp · Telegram · system sheet | ✅ email + link | ❌ no link exists | ❌ no link exists | ✅ *it is* the chat |
-| Size limit | your disk (10 GB default) | ~2–3 GB free | disk | browser memory | 2 GB/file |
+| Size limit | your disk (10 GB default) · **500 MB demo** | ~2–3 GB free | disk | browser memory | 2 GB/file |
 | Where files live | **your PC only** | their cloud | peer devices | RAM | their cloud |
 | Open source | ✅ MIT | ❌ | ✅ | ✅ | ❌ |
 
@@ -67,7 +73,21 @@ An honest comparison — every tool here is good at something:
 
 Requires Python 3.8+. That's it.
 
+### Option 1: One-command instant run
+
 ```bash
+# Windows (PowerShell / CMD):
+curl.exe -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py | python
+
+# macOS / Linux:
+curl -sSL https://raw.githubusercontent.com/Kawshikmr/filebeam/main/filebeam.py | python3
+```
+
+### Option 2: Clone & run locally
+
+```bash
+git clone https://github.com/Kawshikmr/filebeam.git
+cd filebeam
 python filebeam.py
 ```
 
