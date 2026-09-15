@@ -235,7 +235,7 @@ $('bar').style.display='none';$('barf').style.width='0%';$('result').style.displ
 function setPct(p){$('barf').style.width=Math.max(0,Math.min(100,p))+'%'}
 
 /* --- E2EE Helpers (Web Crypto) --- */
-function b64url(buf){return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function b64url(buf){return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g,'-').replace(/\\\//g,'_').replace(/=+$/,'')}
 function unb64url(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))}
 async function genKey(){return await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt'])}
 async function encSlice(raw,k){
@@ -361,7 +361,7 @@ async function start(){
 let RKEY=null;
 async function lookup(){
  const raw=$('code').value.trim();
- const lm=raw.match(/\/d\/([A-Z0-9]{6})(?:#([^\s]+))?$/i)||raw.match(/^([A-Z0-9]{6})(?:#([^\s]+))?$/i);
+ const lm=raw.match(/\\/d\\/([A-Z0-9]{6})(?:#([^\\s]+))?$/i)||raw.match(/^([A-Z0-9]{6})(?:#([^\\s]+))?$/i);
  const c=lm?lm[1].toUpperCase():raw.toUpperCase();
  const k=lm&&lm[2]?lm[2]:'';
  $('rerr').style.display='none';$('rlist').innerHTML='';
@@ -381,7 +381,7 @@ async function lookup(){
   const isD=done.includes(i);
   const cls='dl'+(isD?' saved':'');
   const tag=enc
-   ? '<button class="'+cls+'" onclick="decFile(\'/d/'+c+'/f/'+i+'/raw\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',RKEY)">'+(isD?'&#10004; Saved':'\uD83D\uDD13 Decrypt & Download')+'</button>'
+   ? '<button class="'+cls+'" onclick="decFile(\\'/d/'+c+'/f/'+i+'/raw\\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',RKEY)">'+(isD?'&#10004; Saved':'\uD83D\uDD13 Decrypt & Download')+'</button>'
    : '<a class="'+cls+'" href="/d/'+c+'/f/'+i+'/raw" download="'+esc(x.name)+'">'+(isD?'&#10004; Saved':'Download')+'</a>';
   return '<div class=frow data-i="'+i+'"><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div>'+tag+'</div>';
  }
