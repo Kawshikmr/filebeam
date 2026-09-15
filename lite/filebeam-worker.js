@@ -1,4 +1,4 @@
-﻿/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
+/* FileBeam-JS (KV edition) — Cloudflare Workers + Workers KV
    Copyright (c) 2026 Kawshik. All rights reserved.
    Source: https://github.com/Kawshikmr/filebeam
    Licensed under the MIT License.
@@ -153,13 +153,15 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .err{color:#d6336c;font-size:13px;text-align:center;margin-bottom:14px;display:none}
 footer{font-size:12px;color:var(--muted);text-align:center;margin-top:24px}
 footer a{color:var(--accent);text-decoration:none;font-weight:700}
-.pwa-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--base);padding:8px 18px;border-radius:999px;box-shadow:9px 9px 20px var(--dark),-7px -7px 16px var(--lite);display:flex;align-items:center;gap:12px;z-index:99;font-size:13px;font-weight:700}
+.pwa-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--base);padding:8px 18px;border-radius:999px;box-shadow:9px 9px 20px var(--dark),-7px -7px 16px var(--lite);display:flex;align-items:center;gap:12px;z-index:100;font-size:13px;font-weight:700}
+body.pwa-open{padding-bottom:72px}
+body.pwa-open #phoneBtn,body.pwa-open #phoneBox{display:none!important}
 @media(max-width:520px){.card{padding:24px}.code{font-size:32px;letter-spacing:6px}}
 `;
 
 const SHELL = (title) => `<!doctype html><html lang="en"><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">≡ƒôª</text></svg>'>
+<link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📦</text></svg>'>
 <link rel=manifest href="/manifest.webmanifest">
 <meta name=theme-color content="#6d7cff">
 <meta name=apple-mobile-web-app-capable content="yes">
@@ -167,20 +169,20 @@ const SHELL = (title) => `<!doctype html><html lang="en"><head><meta charset=utf
 <title>${title}</title>
 <style>${BASE_CSS}</style></head><body>`;
 
-const FOOTER = `<footer>No accounts ┬╖ No cookies ┬╖ Files auto-delete in 60 min ┬╖ Free forever ┬╖ open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer>
-<div id=pwaBar class="pwa-bar hidden"><span style="color:#6d7cff">≡ƒô▓ Install FileBeam App</span><button class=mini style="padding:6px 14px" onclick=installPwa()>Install</button><button class=mini style="padding:6px 10px" onclick="$('pwaBar').classList.add('hidden')">Γ£ò</button></div>
+const FOOTER = `<footer>No accounts · No cookies · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer>
+<div id=pwaBar class="pwa-bar hidden"><span style="color:#6d7cff">📲 Install FileBeam App</span><button class=mini style="padding:6px 14px" onclick=installPwa()>Install</button><button class=mini style="padding:6px 10px" onclick="$('pwaBar').classList.add('hidden');document.body.classList.remove('pwa-open')">✕</button></div>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 let defPrompt=null;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();defPrompt=e;const p=document.getElementById('pwaBar');if(p)p.classList.remove('hidden');});
-function installPwa(){if(defPrompt){defPrompt.prompt();defPrompt.userChoice.then(()=>{const p=document.getElementById('pwaBar');if(p)p.classList.add('hidden');defPrompt=null;});}}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();defPrompt=e;const p=document.getElementById('pwaBar');if(p)p.classList.remove('hidden');document.body.classList.add('pwa-open');});
+function installPwa(){if(defPrompt){defPrompt.prompt();defPrompt.userChoice.then(()=>{const p=document.getElementById('pwaBar');if(p)p.classList.add('hidden');document.body.classList.remove('pwa-open');defPrompt=null;});}}
 </script></body></html>`;
 
 function gonePage(msg) {
   return `${SHELL("FileBeam")}
 <div class=card style=text-align:center>
 <div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
-<h2 style=margin-bottom:12px>ΓÅ▒∩╕Å Beam expired</h2>
+<h2 style=margin-bottom:12px>⏱️ Beam expired</h2>
 <p class=note style=margin-bottom:24px>${msg}</p>
 <a class=btn href="/">Beam something new</a></div>${FOOTER}`;
 }
@@ -209,7 +211,7 @@ function renderChips(){
  $('chips').innerHTML=PICKED.map((p,i)=>'<div class=chip><div class=ext style="background:'+extColor(ext(p.name))+'">'+ext(p.name).toUpperCase()+'</div><div class=nm>'+esc(p.name)+'</div><div class=sz>'+fmt(p.size)+'</div><button onclick=rm('+i+')>&#10005;</button></div>').join('');
  const tot=PICKED.reduce((a,p)=>a+p.size,0);
  if(PICKED.length){$('chips').classList.remove('hidden');
-  $('totline').textContent=(PICKED.length>1?PICKED.length+' files ┬╖ ':'')+fmt(tot)+' of '+MAXBEAM+' MB';
+  $('totline').textContent=(PICKED.length>1?PICKED.length+' files · ':'')+fmt(tot)+' of '+MAXBEAM+' MB';
   $('totline').classList.remove('hidden');
  }else{$('chips').classList.add('hidden');$('totline').classList.add('hidden')}
 }
@@ -223,8 +225,8 @@ function addPick(file){
 }
 function pick(files){for(const x of files)addPick(x);f.value=''}
 function rm(i){PICKED.splice(i,1);renderChips();if(!PICKED.length)$('go').disabled=true}
-function cp(w,btn){const v=w==='code'?UPL.code:UPL.url;navigator.clipboard.writeText(v);
-btn.textContent='Γ£ô Copied';setTimeout(()=>{btn.textContent=w==='code'?'Copy Code':'Copy Link'},1400)}
+function cp(w,btn){const isEnc=UPL.url.includes('#');let v=w==='code'?(isEnc?UPL.url:UPL.code):UPL.url;let lbl=w==='code'?(isEnc?'Copy Link (with key)':'Copy Code'):'Copy Link';navigator.clipboard.writeText(v);
+btn.textContent='✓ Copied';setTimeout(()=>{btn.textContent=lbl},1400)}
 function shareWA(){window.open('https://wa.me/?text='+encodeURIComponent(UPL.msg),'_blank')}
 function shareTG(){window.open('https://t.me/share/url?url='+encodeURIComponent(UPL.url)+'&text='+encodeURIComponent('Tap the link to get the file'),'_blank')}
 function nativeShare(btn){if(navigator.share){navigator.share({title:'FileBeam',text:UPL.msg,url:UPL.url}).catch(()=>{})}else{cp('link',btn)}}
@@ -248,7 +250,7 @@ async function startP2PSender(code){
  try{
   PC=new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}]});
   DC=PC.createDataChannel('filebeam');
-  DC.onopen=()=>{ $('p2pBadge').classList.add('active'); $('p2pBadge').textContent='≡ƒƒó P2P Direct Connected'; };
+  DC.onopen=()=>{ $('p2pBadge').classList.add('active'); $('p2pBadge').textContent='🟢 P2P Direct Connected'; };
   DC.onmessage=async e=>{
    if(e.data==='GET_FILES'){
     DC.send(JSON.stringify({files:PICKED.map(p=>({name:p.name,size:p.size,type:p.type}))}));
@@ -356,29 +358,43 @@ async function start(){
  xhr.send(body);
 }
 
+let RKEY=null;
 async function lookup(){
- const c=$('code').value.trim().toUpperCase();
+ const raw=$('code').value.trim();
+ const lm=raw.match(/\/d\/([A-Z0-9]{6})(?:#([^\s]+))?$/i)||raw.match(/^([A-Z0-9]{6})(?:#([^\s]+))?$/i);
+ const c=lm?lm[1].toUpperCase():raw.toUpperCase();
+ const k=lm&&lm[2]?lm[2]:'';
  $('rerr').style.display='none';$('rlist').innerHTML='';
- if(!/^[A-Z0-9]{6}$/.test(c)){$('rerr').textContent='Enter the 6-character code.';$('rerr').style.display='block';return}
+ if(!/^[A-Z0-9]{6}$/.test(c)){$('rerr').textContent='Enter the 6-character code, or paste the full link you received.';$('rerr').style.display='block';return}
  let j;
  try{j=await(await fetch('/api/meta/'+c)).json()}catch(e){j={err:'network'}}
  if(j.err){$('rerr').textContent='This code expired or is wrong.';$('rerr').style.display='block';return}
- RCODE=c;
- const stos=localStorage.getItem('fb_done_'+c);const done=stos?JSON.parse(stos):[];
- if(j.files){
-  $('rlist').innerHTML=j.files.map((x,i)=>{
-   const isD=done.includes(i);
-   return '<div class=frow data-i="'+i+(isD?' done':'')+'"><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div><a class=dl'+(isD?' saved':'')+' href="/d/'+c+'/f/'+i+'/raw" download="'+esc(x.name)+'">'+(isD?'&#10004; Saved':'Download')+'</a></div>';
-  }).join('');
-  $('dlrow').classList.remove('hidden');
- }else{
-  $('rlist').innerHTML='<div class=frow><div class=ext style="background:'+extColor(ext(j.name))+'">'+ext(j.name).toUpperCase()+'</div><div class=nm>'+esc(j.name)+'</div><div class=sz>'+fmt(j.size)+'</div><a class=dl href="/d/'+c+'/raw" download="'+esc(j.name)+'">Download</a></div>';
+ RCODE=c;RKEY=k;
+ $('dlrow').classList.add('hidden');
+ const enc=!!j.enc;
+ if(enc&&!k){
+  $('rlist').innerHTML='<div class=frow style="text-align:center"><div class=nm>\uD83D\uDD12 This beam is end-to-end encrypted.</div><div class=sz>Open the <b>full link</b> the sender shared (it ends with <b>#key</b>) \u2014 a code alone cannot decrypt it. Ask the sender to share the link or QR.</div></div>';
+  return;
  }
+ const stos=localStorage.getItem('fb_done_'+c);const done=stos?JSON.parse(stos):[];
+ function rowHtml(x,i){
+  const isD=done.includes(i);
+  const cls='dl'+(isD?' saved':'');
+  const tag=enc
+   ? '<button class="'+cls+'" onclick="decFile(\'/d/'+c+'/f/'+i+'/raw\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',RKEY)">'+(isD?'&#10004; Saved':'\uD83D\uDD13 Decrypt & Download')+'</button>'
+   : '<a class="'+cls+'" href="/d/'+c+'/f/'+i+'/raw" download="'+esc(x.name)+'">'+(isD?'&#10004; Saved':'Download')+'</a>';
+  return '<div class=frow data-i="'+i+'"><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div>'+tag+'</div>';
+ }
+ if(j.files){
+  $('rlist').innerHTML=j.files.map((x,i)=>rowHtml(x,i)).join('');
+ }else{
+  $('rlist').innerHTML=rowHtml({name:j.name,type:j.type,size:j.size},0);
+ }
+ if(enc){$('dlrow').style.display='none';$('dlrow').classList.add('hidden')}else{$('dlrow').style.display=''}
  $('rlist').onclick=e=>{
-  if(e.target.classList.contains('dl')){
-   const row=e.target.closest('.frow');if(!row)return;
-   markDl(row,Number(row.dataset.i||0));
-  }
+  const t=e.target;
+  const row=t.closest?t.closest('.frow'):null;if(!row)return;
+  if(t.classList&&t.classList.contains('dl'))markDl(row,Number(row.dataset.i||0));
  };
 }
 function markDl(row,i){
@@ -389,7 +405,7 @@ function markDl(row,i){
 function dlAllEach(){
  if(!RCODE)return;
  const rows=document.querySelectorAll('#rlist .frow');
- rows.forEach(row=>{markDl(row,Number(row.dataset.i||0))});
+ rows.forEach(row=>{const b=row.querySelector('.dl');if(b&&b.tagName==='BUTTON')b.click();markDl(row,Number(row.dataset.i||0))});
 }
 function dlAllZip(){if(RCODE)location.href='/d/'+RCODE+'/zip'}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -405,12 +421,12 @@ function togglePhone(){
 `;
 
 function homePage(maxMb, beamCount) {
-  return `${SHELL("FileBeam ΓÇö Instant Cross-Device File Sharing")}<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  return `${SHELL("FileBeam — Instant Cross-Device File Sharing")}<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <div class=card>
 <div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
 <div class=badge-row>
-<span class="badge" id=p2pBadge>ΓÜí Direct P2P Ready</span>
-<span class="badge active" id=encBadge>≡ƒöÆ End-to-End Encrypted</span>
+<span class="badge" id=p2pBadge>⚡ Direct P2P Ready</span>
+<span class="badge active" id=encBadge>🔒 End-to-End Encrypted</span>
 </div>
 <div class=tabs>
 <button class="tab active" id=tS onclick=show('s')>Send</button>
@@ -418,16 +434,16 @@ function homePage(maxMb, beamCount) {
 </div>
 
 <div id=cS>
-<div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick files or drop them here ┬╖ up to ${maxMb} MB total</p><input type=file id=f hidden multiple></div>
+<div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick files or drop them here · up to ${maxMb} MB total</p><input type=file id=f hidden multiple></div>
 <div class="files hidden" id=chips></div>
 <div class="total hidden" id=totline></div>
 <div class=optrow id=optRow>
-<label><input type=checkbox id=chkEnc checked> ≡ƒöÆ Zero-Knowledge Encryption (AES-GCM-256)</label>
+<label><input type=checkbox id=chkEnc checked> 🔒 Zero-Knowledge Encryption (AES-GCM-256)</label>
 </div>
 <div class=pbar id=bar><div id=barf></div></div>
-<button class=btn id=go disabled onclick=start()>ΓÜí Beam It</button>
+<button class=btn id=go disabled onclick=start()>⚡ Beam It</button>
 <div class=result id=result>
-<div class="badge active hidden" id=e2eBadge style="margin-bottom:12px">≡ƒöÆ Encrypted with Zero-Knowledge Key</div>
+<div class="badge active hidden" id=e2eBadge style="margin-bottom:12px">🔒 Encrypted with Zero-Knowledge Key</div>
 <div class=lbl>Your Pickup Code</div>
 <div class=code id=dCode></div>
 <div class=url id=dLink></div>
@@ -442,7 +458,7 @@ function homePage(maxMb, beamCount) {
 <button class=mini style="color:#229ed9" onclick=shareTG()>Telegram</button>
 </div>
 <img id=qr alt="QR code">
-<div class=note style=margin-top:14px>Valid 60 minutes ┬╖ share code or scan QR code to receive instantly.</div>
+<div class=note style=margin-top:14px>Valid 60 minutes · share code or scan QR code to receive instantly.</div>
 <button class="btn ghost" onclick=reset()>Beam Another File</button>
 </div>
 </div>
@@ -457,9 +473,9 @@ function homePage(maxMb, beamCount) {
 <a class="btn ghost" href="javascript:dlAllZip()" style=width:48%>Download All (zip)</a>
 </div>
 </div>
-${beamCount ? `<div class=note style=text-align:center;margin-top:14px>ΓÜí ${beamCount} beams served so far</div>` : ""}
+${beamCount ? `<div class=note style=text-align:center;margin-top:14px>⚡ ${beamCount} beams served so far</div>` : ""}
 </div>
-<p class=note style=text-align:center;margin-top:18px>Demo lane (${maxMb} MB) ┬╖ Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> ┬╖ source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+<p class=note style=text-align:center;margin-top:18px>Demo lane (${maxMb} MB) · Need <b>10 GB</b>? Grab <a href=/filebeam.py>filebeam.py</a> and run <i>python filebeam.py --tunnel</i> · source: <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 <button class=mini id=phoneBtn onclick=togglePhone() style="position:fixed;right:16px;bottom:16px;border-radius:99px;z-index:9">Receive on phone?</button>
 <div id=phoneBox class=hidden style="position:fixed;right:16px;bottom:64px;background:rgba(17,20,29,.96);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px;text-align:center;z-index:9">
 <img id=pqr alt="" style="width:150px;background:#fff;border-radius:10px;padding:6px;display:block">
@@ -479,11 +495,11 @@ ${CLIENT_JS}
 function receivePageScript(code, hasFiles, enc) {
   return `<script>
 function unb64url(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))}
-async function decFile(url,name,mime){
- const h=window.location.hash.slice(1);
- if(!h){window.location.href=url;return}
+async function decFile(url,name,mime,key){
+ const h=key||window.location.hash.slice(1);
+ if(!h){if(${enc?1:0}){alert('🔒 This beam is end-to-end encrypted. Open the full link you received — it ends with the key after #. The code alone cannot decrypt it.');return;}window.location.href=url;return}
  let btn;try{btn=document.getElementById('dlBtn')||(event&&event.target)}catch(e){btn=null}
- const origTxt=btn?btn.textContent:'';if(btn)btn.textContent='ΓÅ│ Decrypting...';
+ const origTxt=btn?btn.textContent:'';if(btn)btn.textContent='⏳ Decrypting...';
  try{
   const kBytes=unb64url(h);
   const kObj=await crypto.subtle.importKey('raw',kBytes,{name:'AES-GCM'},false,['decrypt']);
@@ -493,9 +509,9 @@ async function decFile(url,name,mime){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},kObj,ct);
   const blob=new Blob([pt],{type:mime||'application/octet-stream'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
-  if(btn){btn.textContent='Γ£ô Downloaded';setTimeout(()=>{btn.textContent=origTxt},2000)}
+  if(btn){btn.textContent='✓ Downloaded';setTimeout(()=>{btn.textContent=origTxt},2000)}
  }catch(e){
-  alert('Decryption failed ΓÇö invalid link key');
+  alert('Decryption failed — invalid link key');
   if(btn)btn.textContent=origTxt;
  }
 }
@@ -521,7 +537,7 @@ async function decFile(url,name,mime){
    const dc=e.channel;
    dc.onopen=()=>{
     const badge=document.getElementById('p2pStatus');
-    if(badge){badge.classList.add('active');badge.textContent='ΓÜí High Speed P2P Direct Connected';badge.style.display='inline-flex';}
+    if(badge){badge.classList.add('active');badge.textContent='⚡ High Speed P2P Direct Connected';badge.style.display='inline-flex';}
    };
   };
  }catch(e){}
@@ -552,7 +568,7 @@ export default {
           description: "Instant, zero-install, encrypted cross-device file sharing.",
           icons: [
             {
-              src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='25' fill='%236d7cff'/><text y='.75em' x='50%' text-anchor='middle' font-size='65'>≡ƒôª</text></svg>",
+              src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='25' fill='%236d7cff'/><text y='.75em' x='50%' text-anchor='middle' font-size='65'>📦</text></svg>",
               sizes: "192x192 512x512",
               type: "image/svg+xml",
               purpose: "any maskable",
@@ -613,7 +629,7 @@ export default {
         return json(cur ? JSON.parse(cur) : []);
       }
 
-      /* ---- big-lane: init (chunked upload, multiple files ok, total Γëñ MAX_BEAM) ---- */
+      /* ---- big-lane: init (chunked upload, multiple files ok, total ≤ MAX_BEAM) ---- */
       if (path === "/api/beam/init" && request.method === "POST") {
         let name, type, size, files, enc = false;
         const ct = (request.headers.get("content-type") || "").toLowerCase();
@@ -687,7 +703,7 @@ export default {
           ok: true,
           code,
           url: `${url.origin}/d/${code}`,
-          msg: `≡ƒôª FileBeam: "${m.name}" ΓÇö get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
+          msg: `📦 FileBeam: "${m.name}" — get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
         });
       }
 
@@ -725,7 +741,7 @@ export default {
           ok: true,
           code,
           url: `${url.origin}/d/${code}`,
-          msg: `≡ƒôª FileBeam: "${name}" ΓÇö get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
+          msg: `📦 FileBeam: "${name}" — get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
         });
       }
 
@@ -745,10 +761,10 @@ export default {
       if (df) {
         const m = await getManifest(env, df[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
-        if (!m.files) return resp(gonePage("This beam is an older single-file beam ΓÇö use its original link."), 404);
+        if (!m.files) return resp(gonePage("This beam is an older single-file beam — use its original link."), 404);
         const fi = Number(df[2]);
         if (fi < 0 || fi >= m.files.length) return resp(gonePage("No such file in this beam."), 404);
-        if (!m.done) return resp(gonePage("This beam is still uploading ΓÇö ask the sender to wait a minute."), 425);
+        if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
         const fobj = m.files[fi];
         let data;
         if (fobj.parts > 1) {
@@ -768,7 +784,7 @@ export default {
         if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         let data;
         if (m.files) {
-          if (!m.done) return resp(gonePage("This beam is still uploading ΓÇö ask the sender to wait a minute."), 425);
+          if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
           const f0 = m.files[0];
           data = f0.parts > 1
             ? streamParts(env, i => `c:${dr[1]}:0:${i}`, f0.parts)
@@ -777,7 +793,7 @@ export default {
           return new Response(data, { headers: fileHeaders(m, f0) });
         }
         if (m.parts > 1) {
-          if (!m.done) return resp(gonePage("This beam is still uploading ΓÇö ask the sender to wait a minute."), 425);
+          if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
           data = streamParts(env, i => `c:${dr[1]}:${i}`, m.parts);
         } else {
           data = await env.BEAM.get("d:" + dr[1], { type: "arrayBuffer" });
@@ -801,7 +817,7 @@ export default {
         if (!m.files || !m.done) return resp(gonePage("Zip download works on completed multi-file beams."), 404);
         if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         try { return await zipStreamResponse(env, dzz[1], m); }
-        catch (e) { return resp(gonePage("Could not build the zip ΓÇö " + e.message), 500); }
+        catch (e) { return resp(gonePage("Could not build the zip — " + e.message), 500); }
       }
 
       /* ---- receive page ---- */
@@ -813,21 +829,21 @@ export default {
         if (m.files && m.done) {
           const rows = m.files.map((f, i) => `<div class=frow data-i="${i}"><div class=ext style="background:${extColorFor(f.name)}">${extOf(f.name).toUpperCase()}</div><div class=nm>${escapeHtml(f.name)}</div><div class=sz>${fmtSize(f.size)}</div><button class=dl onclick="dlOne(${i})">Download</button></div>`).join("");
           body = `<div class=badge-row style="justify-content:center;margin-bottom:14px">
-<span class="badge" id=p2pStatus style="display:none">ΓÜí High Speed P2P</span>
-${m.enc ? `<span class="badge active">≡ƒöÆ End-to-End Encrypted</span>` : ""}
+<span class="badge" id=p2pStatus style="display:none">⚡ High Speed P2P</span>
+${m.enc ? `<span class="badge active">🔒 End-to-End Encrypted</span>` : ""}
 </div>
-<h2>≡ƒôÑ Incoming beam ΓÇö ${m.files.length} file${m.files.length > 1 ? "s" : ""}</h2>
+<h2>📥 Incoming beam — ${m.files.length} file${m.files.length > 1 ? "s" : ""}</h2>
 <div class=flist style=margin-top:14px;text-align:left>${rows}</div>
 <div class=btnrow style=margin-top:14px;justify-content:space-between>
-<a class="btn ghost" href="javascript:dlAll();" style=width:48%>Γ¼ç∩╕Å Download All</a>
-${m.files.length > 1 && !m.enc ? `<a class="btn ghost" href="/d/${dp[1]}/zip" style=width:48%>Γ¼ç∩╕Å Download All (.zip)</a>` : ""}
+<a class="btn ghost" href="javascript:dlAll();" style=width:48%>⬇️ Download All</a>
+${m.files.length > 1 && !m.enc ? `<a class="btn ghost" href="/d/${dp[1]}/zip" style=width:48%>⬇️ Download All (.zip)</a>` : ""}
 </div>
 <script>
 const FBFILES=${JSON.stringify(m.files.map((f,i)=>[`/d/${dp[1]}/f/${i}/raw`,f.name,f.type]))};
 (function(){
  const done=new Set(JSON.parse(localStorage.getItem('fb_done_${dp[1]}')||'[]'));
- document.querySelectorAll('.frow').forEach((r,i)=>{if(done.has(i)){r.classList.add('done');const b=r.querySelector('.dl');b.textContent='Γ£ô Saved';b.classList.add('saved')}});
- function save(i){const d=new Set(JSON.parse(localStorage.getItem('fb_done_${dp[1]}')||'[]'));d.add(i);localStorage.setItem('fb_done_${dp[1]}',JSON.stringify([...d]));const r=document.querySelector('.frow[data-i="'+i+'"]');if(r){r.classList.add('done');const b=r.querySelector('.dl');b.textContent='Γ£ô Saved';b.classList.add('saved')}}
+ document.querySelectorAll('.frow').forEach((r,i)=>{if(done.has(i)){r.classList.add('done');const b=r.querySelector('.dl');b.textContent='✓ Saved';b.classList.add('saved')}});
+ function save(i){const d=new Set(JSON.parse(localStorage.getItem('fb_done_${dp[1]}')||'[]'));d.add(i);localStorage.setItem('fb_done_${dp[1]}',JSON.stringify([...d]));const r=document.querySelector('.frow[data-i="'+i+'"]');if(r){r.classList.add('done');const b=r.querySelector('.dl');b.textContent='✓ Saved';b.classList.add('saved')}}
  window.dlOne=function(i){decFile(FBFILES[i][0],FBFILES[i][1],FBFILES[i][2]);save(i)};
  window.dlAll=function(){FBFILES.forEach((f,i)=>{decFile(f[0],f[1],f[2]);save(i)})};
 })();
@@ -836,25 +852,25 @@ const FBFILES=${JSON.stringify(m.files.map((f,i)=>[`/d/${dp[1]}/f/${i}/raw`,f.na
           const kb = Math.max(1, Math.round(m.size / 1024));
           const sizeTxt = m.size >= 1048576 ? (m.size / 1048576).toFixed(1) + " MB" : kb + " KB";
           body = `<div class=badge-row style="justify-content:center;margin-bottom:14px">
-<span class="badge" id=p2pStatus style="display:none">ΓÜí High Speed P2P</span>
-${m.enc ? `<span class="badge active">≡ƒöÆ End-to-End Encrypted</span>` : ""}
+<span class="badge" id=p2pStatus style="display:none">⚡ High Speed P2P</span>
+${m.enc ? `<span class="badge active">🔒 End-to-End Encrypted</span>` : ""}
 </div>
-<h2>≡ƒôÑ Incoming beam</h2>
+<h2>📥 Incoming beam</h2>
 <div class=meta style=margin-top:16px>
 <div style="font-size:20px;font-weight:700;word-break:break-all">${escapeHtml(m.name)}</div>
 <div style=margin-top:6px>${sizeTxt}</div>
-<div style=margin-top:2px;color:#fbbf24>ΓÅ│ expires ${new Date(m.exp).toLocaleTimeString()}</div>
+<div style=margin-top:2px;color:#fbbf24>⏳ expires ${new Date(m.exp).toLocaleTimeString()}</div>
 </div>
-<button class=btn id=dlBtn style="margin-top:18px" onclick="decFile('/d/${dp[1]}/raw','${escapeHtml(m.name)}','${escapeHtml(m.type)}')">Γ¼ç∩╕Å Download now</button>`;
+<button class=btn id=dlBtn style="margin-top:18px" onclick="decFile('/d/${dp[1]}/raw','${escapeHtml(m.name)}','${escapeHtml(m.type)}')">⬇️ Download now</button>`;
         } else {
-          body = `<h2>≡ƒôÑ Incoming beam</h2><p class=note style=margin-top:14px>Still uploading ΓÇö ask the sender to wait a minute.</p>`;
+          body = `<h2>📥 Incoming beam</h2><p class=note style=margin-top:14px>Still uploading — ask the sender to wait a minute.</p>`;
         }
-        return resp(`${SHELL("FileBeam ΓÇö incoming")}
+        return resp(`${SHELL("FileBeam — incoming")}
 <div class=logo><svg viewBox="0 0 24 24" fill="none" style="width:36px;height:36px"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
 <div class=card style=text-align:center>
 ${body}
 </div>
-<p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min ┬╖ open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
+<p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 ${FOOTER}
 ${receivePageScript(dp[1], Boolean(m.files), Boolean(m.enc))}`);
       }
@@ -877,7 +893,7 @@ ${receivePageScript(dp[1], Boolean(m.files), Boolean(m.enc))}`);
       }
 
       return resp(`${SHELL("404")}<div style=min-height:60vh;display:flex;align-items:center;width:100%>
-<div class=card style=text-align:center><h2>≡ƒº¡ Lost?</h2><a class=btn href="/">Back to FileBeam</a></div>
+<div class=card style=text-align:center><h2>🧭 Lost?</h2><a class=btn href="/">Back to FileBeam</a></div>
 </div>${FOOTER}`, 404);
     } catch (e) {
       return json({ err: String((e && e.message) || e) }, 500);
