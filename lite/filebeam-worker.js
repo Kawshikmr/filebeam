@@ -588,7 +588,11 @@ export default {
     try {
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
 
-      /* ---- SEO: robots.txt & sitemap.xml ---- */
+      /* ---- SEO: robots.txt, sitemap.xml, IndexNow ---- */
+      const INDEXNOW_KEY = "0cad5483f91effff942d8f409ffad7ae";
+      if (path === "/" + INDEXNOW_KEY + ".txt") {
+        return new Response(INDEXNOW_KEY, { headers: { "content-type": "text/plain;charset=utf-8" } });
+      }
       if (path === "/robots.txt") {
         return new Response("User-agent: *\nAllow: /\nSitemap: https://filebeam.dpdns.org/sitemap.xml\n", {
           headers: { "content-type": "text/plain;charset=utf-8", "cache-control": "public, max-age=86400" },
