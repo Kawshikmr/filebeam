@@ -171,15 +171,14 @@ body.pwa-open #phoneBtn,body.pwa-open #phoneBox{display:none!important}
 @media(max-width:520px){.card{padding:24px}.code{font-size:32px;letter-spacing:6px}}
 `;
 
-const SHELL = (title) => `<!doctype html><html lang="en"><head><meta charset=utf-8>
+const SHELL = (title, seo = "") => `<!doctype html><html lang="en"><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📦</text></svg>'>
 <link rel=manifest href="/manifest.webmanifest">
 <meta name=theme-color content="#6d7cff">
 <meta name=apple-mobile-web-app-capable content="yes">
 <meta name=apple-mobile-web-app-status-bar-style content="black-translucent">
-<title>${title}</title>
-<style>${BASE_CSS}</style></head><body>`;
+<title>${title}</title>${seo}<style>${BASE_CSS}</style></head><body>`;
 
 const FOOTER = `<footer>No accounts · No cookies · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer>
 <div id=pwaBar class="pwa-bar hidden"><span style="color:#6d7cff">📲 Install FileBeam App</span><button class=mini style="padding:6px 14px" onclick=installPwa()>Install</button><button class=mini style="padding:6px 10px" onclick="$('pwaBar').classList.add('hidden');document.body.classList.remove('pwa-open')">✕</button></div>
@@ -439,7 +438,21 @@ function togglePhone(){
 `;
 
 function homePage(maxMb, beamCount) {
-  return `${SHELL("FileBeam — Instant Cross-Device File Sharing")}<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  return `${SHELL("FileBeam — Instant Cross-Device File Sharing", `
+<meta name=description content="FileBeam is a free, open-source, zero-install file sender. Share files with one link or a 6-character code — receiver needs no upload, no account, no download. Files never leave your device.">
+<meta name=robots content="index, follow">
+<link rel=canonical href="https://filebeam.dpdns.org/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FileBeam — Share files with one link">
+<meta property="og:description" content="Free, open-source, encrypted file sharing. Receiver needs no app — just the link or a 6-character code.">
+<meta property="og:url" content="https://filebeam.dpdns.org/">
+<meta name=twitter:card content="summary">
+<meta name=twitter:title content="FileBeam — Share files with one link">
+<meta name=twitter:description content="Free, open-source, encrypted file sharing. No install, no account.">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"FileBeam","alternateName":"FileBeam file sharing","url":"https://filebeam.dpdns.org/","description":"Free open-source encrypted file sharing with one link or a 6-character code.","applicationCategory":"UtilitiesApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Zero-install receiver","End-to-end encrypted","Files never leave your device","Open source MIT"]}
+</script>`)}
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <div class=card>
 <div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
 <div class=badge-row>
@@ -573,6 +586,20 @@ export default {
 
     try {
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
+
+      /* ---- SEO: robots.txt & sitemap.xml ---- */
+      if (path === "/robots.txt") {
+        return new Response("User-agent: *\nAllow: /\nSitemap: https://filebeam.dpdns.org/sitemap.xml\n", {
+          headers: { "content-type": "text/plain;charset=utf-8", "cache-control": "public, max-age=86400" },
+        });
+      }
+
+      if (path === "/sitemap.xml") {
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://filebeam.dpdns.org/</loc><changefreq>daily</changefreq><priority>1.0</priority></url></urlset>`,
+          { headers: { "content-type": "application/xml;charset=utf-8", "cache-control": "public, max-age=3600" } },
+        );
+      }
 
       /* ---- PWA Manifest & Service Worker ---- */
       if (path === "/manifest.webmanifest" || path === "/manifest.json") {
