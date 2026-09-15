@@ -176,6 +176,7 @@ const SHELL = (title, seo = "") => `<!doctype html><html lang="en"><head><meta c
 <link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📦</text></svg>'>
 <link rel=manifest href="/manifest.webmanifest">
 <meta name=theme-color content="#6d7cff">
+<meta name="google-site-verification" content="hGchc5bdlndMyxvD400fnoCQI4PBvoEYAEPnznmDo4A">
 <meta name=apple-mobile-web-app-capable content="yes">
 <meta name=apple-mobile-web-app-status-bar-style content="black-translucent">
 <title>${title}</title>${seo}<style>${BASE_CSS}</style></head><body>`;
