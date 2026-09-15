@@ -150,6 +150,18 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .btnrow{display:flex}
 .btnrow .btn{margin:0}
 .hidden{display:none!important}
+.totbar{position:fixed;bottom:0;left:0;right:0;z-index:90;background:linear-gradient(180deg,rgba(38,38,60,.92),rgba(38,38,60,.98));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(168,85,247,.22);padding:12px 18px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;box-shadow:0 -8px 24px rgba(20,20,40,.5)}
+body.tot-open{padding-bottom:118px}
+.totrow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.totinfo{font-size:13px;font-weight:800;color:#fff;line-height:1.35}
+.totinfo b{color:#a855f7}
+.totrm{font-size:11px;color:var(--muted);font-weight:700}
+.gauge{height:7px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden;box-shadow:inset 2px 2px 4px rgba(0,0,0,.4)}
+.gauge i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#6d7cff,#a855f7,#ec4899);border-radius:999px;transition:width .3s}
+.gauge.warn i{background:linear-gradient(90deg,#f59e0b,#ef4444)}
+.totadd{padding:11px 18px;border-radius:14px;font-size:13px;width:auto;margin:0;white-space:nowrap;background:var(--base);color:var(--accent);box-shadow:7px 7px 16px var(--dark),-7px -7px 16px var(--lite);cursor:pointer;font-weight:800;border:none}
+.totadd:hover{filter:brightness(1.08)}
+.totadd:active{box-shadow:inset 5px 5px 10px var(--dark),inset -5px -5px 10px var(--lite)}
 .err{color:#d6336c;font-size:13px;text-align:center;margin-bottom:14px;display:none}
 footer{font-size:12px;color:var(--muted);text-align:center;margin-top:24px}
 footer a{color:var(--accent);text-decoration:none;font-weight:700}
@@ -210,10 +222,16 @@ let PICKED=[];
 function renderChips(){
  $('chips').innerHTML=PICKED.map((p,i)=>'<div class=chip><div class=ext style="background:'+extColor(ext(p.name))+'">'+ext(p.name).toUpperCase()+'</div><div class=nm>'+esc(p.name)+'</div><div class=sz>'+fmt(p.size)+'</div><button onclick=rm('+i+')>&#10005;</button></div>').join('');
  const tot=PICKED.reduce((a,p)=>a+p.size,0);
- if(PICKED.length){$('chips').classList.remove('hidden');
-  $('totline').textContent=(PICKED.length>1?PICKED.length+' files · ':'')+fmt(tot)+' of '+MAXBEAM+' MB';
-  $('totline').classList.remove('hidden');
- }else{$('chips').classList.add('hidden');$('totline').classList.add('hidden')}
+ if(PICKED.length){
+  $('chips').classList.remove('hidden');
+  $('totline').innerHTML=(PICKED.length>1?PICKED.length+' files · ':'')+'<b>'+fmt(tot)+'</b> of '+MAXBEAM+' MB';
+  const remain=Math.max(0,MAXBEAM*1048576-tot);
+  $('totrm').textContent=remain?fmt(remain)+' free':'Full';
+  const pct=Math.min(100,tot/(MAXBEAM*1048576)*100);
+  $('totfill').style.width=pct+'%';
+  $('totgauge').classList.toggle('warn',tot>=(MAXBEAM*1048576)*0.8);
+  $('totbar').hidden=false;document.body.classList.add('tot-open');
+ }else{$('chips').classList.add('hidden');$('totbar').hidden=true;document.body.classList.remove('tot-open')}
 }
 function addPick(file){
  if(!file)return;
@@ -436,7 +454,7 @@ function homePage(maxMb, beamCount) {
 <div id=cS>
 <div class=drop id=drop onclick=f.click()><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 1 1 .9-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-.5 7H7z"/><path d="M12 12v6m0-6l-2.5 2.5M12 12l2.5 2.5"/></svg><p>Tap to pick files or drop them here · up to ${maxMb} MB total</p><input type=file id=f hidden multiple></div>
 <div class="files hidden" id=chips></div>
-<div class="total hidden" id=totline></div>
+<div class=totbar id=totbar hidden><div class=totrow><div><div class=totinfo id=totline></div><div class=totrm id=totrm></div></div><button class=totadd id=totadd onclick=f.click()>＋ Add more</button></div><div class=gauge id=totgauge><i id=totfill></i></div></div>
 <div class=optrow id=optRow>
 <label><input type=checkbox id=chkEnc checked> 🔒 Zero-Knowledge Encryption (AES-GCM-256)</label>
 </div>
