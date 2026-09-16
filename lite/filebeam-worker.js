@@ -22,6 +22,56 @@ const CHUNK_BYTES = 24 * 1024 * 1024;     /* big-lane chunk size */
 const MAX_BEAM = 500 * 1024 * 1024;       /* hosted ceiling via chunked KV (free KV ~1 GB) */
 const UP_CONC = 4;                        /* parallel chunk uploads: big win on mobile data */
 const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const PW_ITERS = 100000;                  /* CF Workers cap PBKDF2 at 100k iterations */
+const MAX_DL_LIMIT = 100;                 /* max configurable download-count limit */
+const RL_INIT_HR = 20;                    /* per-IP beam creations per hour */
+const RL_INIT_DAY = 60;                   /* per-IP beam creations per day */
+const RL_DL_DAY = 400;                    /* per-IP download fetches per day */
+const RL_GLOBAL_DAY = 3000;               /* global beam creations per day */
+
+/* ---- beam password helpers (server-side gate; content stays E2EE) ---- */
+function randHex(n) { return [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, "0")).join(""); }
+async function derivePw(pw, salt) {
+  const enc = new TextEncoder();
+  const kb = await crypto.subtle.importKey("raw", enc.encode(salt + ":" + pw), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: enc.encode(salt), iterations: PW_ITERS }, kb, 256);
+  return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function constEq(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+async function storePw(env, code, pw) {
+  const salt = randHex(12);
+  await env.BEAM.put("pw:" + code, salt + "$" + (await derivePw(pw, salt)), { expirationTtl: TTL_S });
+}
+async function pwOk(env, code, val) {
+  const rec = await env.BEAM.get("pw:" + code);
+  if (!rec) return true;
+  const i = rec.indexOf("$");
+  if (i < 0) return false;
+  const { salt, hash } = { salt: rec.slice(0, i), hash: rec.slice(i + 1) };
+  return constEq(await derivePw(String(val || ""), salt), hash);
+}
+function reqPw(request) { return (request.headers.get("x-filebeam-pw") || "").slice(0, 64) || (new URL(request.url).searchParams.get("pw") || "").slice(0, 64); }
+
+/* ---- abuse protection: lightweight per-IP + global rate limits ---- */
+async function rl(env, request, kind, limit, ttl) {
+  try {
+    const ip = request.headers.get("cf-connecting-ip") || "unknown";
+    const k = `rl:${kind}:${ip}:${new Date().toISOString().slice(0, 10)}`;
+    const cur = Number(await env.BEAM.get(k)) || 0;
+    if (cur >= limit) return false;
+    await env.BEAM.put(k, String(cur + 1), { expirationTtl: ttl });
+    return true;
+  } catch { return true; }
+}
+async function rlGlobal(env, kind, limit) {
+  try {
+    const k = `rl:g:${kind}:${new Date().toISOString().slice(0, 10)}`;
+    const cur = Number(await env.BEAM.get(k)) || 0;
+    if (cur >= limit) return false;
+    await env.BEAM.put(k, String(cur + 1), { expirationTtl: 60 * 60 * 36 });
+    return true;
+  } catch { return true; }
+}
 
 function newCode() {
   const b = crypto.getRandomValues(new Uint8Array(6));
@@ -52,6 +102,38 @@ async function getManifest(env, code) {
     const m = JSON.parse(raw);
     return m && m.exp > Date.now() ? m : null;
   } catch { return null; }
+}
+
+/* Consume one download against the beam's download-count limit (if any). */
+/* Returns true when the download may proceed, false when exhausted. */
+async function consumeDl(env, code, m) {
+  if (!m.dl) return true;
+  const k = "n:" + code;
+  try {
+    const cur = Number(await env.BEAM.get(k)) || 0;
+    if (cur >= m.dl) return false;
+    await env.BEAM.put(k, String(cur + 1), { expirationTtl: TTL_S });
+    return true;
+  } catch { return true; }
+}
+
+/* Delete a beam and all its keys (used by /api/beam/burn). */
+async function burnBeam(env, code, m) {
+  await env.BEAM.delete("m:" + code);
+  await env.BEAM.delete("n:" + code);
+  await env.BEAM.delete("pw:" + code);
+  if (m.files) {
+    for (let fi = 0; fi < m.files.length; fi++)
+      for (let p = 0; p < (m.files[fi].parts || 1); p++)
+        try { await env.BEAM.delete(`c:${code}:${fi}:${p}`); } catch {}
+    if (m.done) await env.BEAM.delete("d:" + code);
+  } else {
+    if (m.parts > 1) for (let p = 0; p < m.parts; p++) try { await env.BEAM.delete(`c:${code}:${p}`); } catch {}
+    await env.BEAM.delete("d:" + code);
+  }
+  for (const s of ["sig:o:", "sig:a:"]) await env.BEAM.delete(s + code);
+  const ices = ["sig:i:sender:", "sig:i:receiver:"];
+  for (const s of ices) await env.BEAM.delete(s + code);
 }
 
 function streamParts(env, mkKey, parts) {
@@ -136,6 +218,13 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 .inrow{display:flex;gap:11px;margin-bottom:20px}
 .inrow input{flex:1;background:var(--base);border:none;border-radius:20px;padding:16px;color:var(--ink);font-family:'Cascadia Code',Consolas,monospace;font-size:23px;letter-spacing:9px;text-align:center;text-transform:uppercase;outline:none;transition:box-shadow .22s;box-shadow:inset 8px 8px 16px var(--dark),inset -8px -8px 16px var(--lite)}
 .inrow input:focus{box-shadow:inset 8px 8px 16px var(--dark),inset -8px -8px 16px var(--lite),0 0 0 2.5px rgba(168,85,247,.35)}
+.pwinrow{display:flex;gap:11px;flex-wrap:wrap}
+.pwinrow input{flex:1;min-width:180px;background:var(--base);border:none;border-radius:16px;padding:15px;color:var(--ink);font-size:16px;outline:none;box-shadow:inset 6px 6px 12px var(--dark),inset -6px -6px 12px var(--lite);transition:box-shadow .22s}
+.pwinrow input:focus{box-shadow:inset 6px 6px 12px var(--dark),inset -6px -6px 12px var(--lite),0 0 0 2.5px rgba(168,85,247,.35)}
+.pwinrow .btn{flex:0 0 auto;width:auto;padding:15px 26px;margin:0}
+.optrow .opt-inline{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.optrow input[type=number]{width:64px;background:var(--base);border:none;border-radius:10px;padding:6px 9px;color:var(--ink);font-size:13px;outline:none;box-shadow:inset 4px 4px 8px var(--dark),inset -4px -4px 8px var(--lite);font-weight:700}
+.optrow input[type=password]{width:110px;background:var(--base);border:none;border-radius:10px;padding:6px 9px;color:var(--ink);font-size:13px;outline:none;box-shadow:inset 4px 4px 8px var(--dark),inset -4px -4px 8px var(--lite)}
 .flist{display:flex;flex-direction:column;gap:11px;margin-bottom:16px}
 .frow{display:flex;align-items:center;gap:13px;background:var(--base);border-radius:19px;padding:14px 16px;box-shadow:7px 7px 15px var(--dark),-7px -7px 15px var(--lite);transition:all .2s}
 .frow:hover{transform:translateY(-1px)}
@@ -181,7 +270,7 @@ const SHELL = (title, seo = "") => `<!doctype html><html lang="en"><head><meta c
 <meta name=apple-mobile-web-app-status-bar-style content="black-translucent">
 <title>${title}</title>${seo}<style>${BASE_CSS}</style></head><body>`;
 
-const FOOTER = `<footer>No accounts · No cookies · Files auto-delete in 60 min · Free forever · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer>
+const FOOTER = `<footer>No accounts · No cookies · Files auto-delete in 60 min · Free forever · <a href=/privacy>Privacy</a> · <a href=/terms>Terms</a> · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr</a></footer>
 <div id=pwaBar class="pwa-bar hidden"><span style="color:#6d7cff">📲 Install FileBeam App</span><button class=mini style="padding:6px 14px" onclick=installPwa()>Install</button><button class=mini style="padding:6px 10px" onclick="$('pwaBar').classList.add('hidden');document.body.classList.remove('pwa-open')">✕</button></div>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
@@ -199,12 +288,81 @@ function gonePage(msg) {
 <a class=btn href="/">Beam something new</a></div>${FOOTER}`;
 }
 
+function receiveLockPage(code) {
+  return `${SHELL("FileBeam — locked")}
+<div class=card style=text-align:center>
+<div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>
+<div class="badge active" style=text-align:center>🔒 Password protected</div>
+<h2 style=margin-top:12px>Unlock this beam</h2>
+<p class=note style=margin-top:10px>Enter the password the sender shared to download.</p>
+<div class=pwinrow style=margin-top:16px><input id=unlockpw type=password maxlength=64 placeholder="Beam password" autocomplete=off spellcheck=false><button class=btn onclick=unlock()>Unlock</button></div>
+<div class=err id=pwerr></div>
+</div>
+${pwGateScript(code)}
+<div style=min-height:20px></div>
+${FOOTER}`;
+}
+
+function pwGateScript(code) {
+  return `<script>
+var FB_PW_${code}=null;
+(async function(){
+ try{var prev=sessionStorage.getItem('fb_pw_${code}');if(prev){FB_PW_${code}=prev;var j=await(await fetch('/api/meta/${code}',{headers:{'x-filebeam-pw':encodeURIComponent(prev)}})).json();if(!j.err){renderBeam(j);return}}}
+ catch(e){}
+ var b=document.getElementById('unlockpw');if(b){b.focus()}
+})();
+async function unlock(){
+ const pw=document.getElementById('unlockpw').value;
+ const err=document.getElementById('pwerr');
+ if(!pw){err.textContent='Enter the beam password.';err.style.display='block';return}
+ err.style.display='none';
+ FB_PW_${code}=pw;
+ try{sessionStorage.setItem('fb_pw_${code}',pw)}catch(e){}
+ var j;
+ try{
+  const res=await fetch('/api/meta/${code}',{headers:{'x-filebeam-pw':encodeURIComponent(pw)}});
+  j=await res.json();
+ }catch(e){err.textContent='Network error — try again.';err.style.display='block';return}
+ if(j.err){err.textContent='Wrong password.';err.style.display='block';return}
+ renderBeam(j);
+}
+function renderBeam(m){
+ const card=document.querySelector('.card');
+ const rows=(m.files||[{name:m.name,type:m.type,size:m.size}]).map((f,i)=>{
+  var ext=(String(f.name).split('.').pop()||'bin').toLowerCase().slice(0,4);
+  var col={pdf:'#ef4444',jpg:'#f59e0b',jpeg:'#f59e0b',png:'#10b981',gif:'#10b981',zip:'#8b5cf6',rar:'#8b5cf6',mp4:'#ec4899',mkv:'#ec4899',mp3:'#06b6d4',wav:'#06b6d4',doc:'#3b82f6',docx:'#3b82f6',xls:'#22c55e',xlsx:'#22c55e',exe:'#64748b',py:'#3b82f6',js:'#eab308',html:'#fb923c'}[ext]||'#6d7cff';
+  var sz=f.size>=1048576?(f.size/1048576).toFixed(1)+' MB':Math.max(1,Math.round(f.size/1024))+' KB';
+  return '<div class=frow data-i="'+i+'"><div class=ext style="background:'+col+'">'+ext.toUpperCase()+'</div><div class=nm>'+escHtml(f.name)+'</div><div class=sz>'+sz+'</div><button class=dl onclick="dlOne('+i+')">Download</button></div>';
+ }).join('');
+ var multi=m.files&&m.files.length>1;
+ var dlInfo=m.dl?'<div style=margin-top:2px;color:#fbbf24>🎟️ '+Math.max(0,m.dl-(m.dlUsed||0))+' of '+m.dl+' downloads left</div>':'';
+ var hd='<div class=badge-row style="justify-content:center">'+(m.enc?'<span class="badge active">🔒 End-to-End Encrypted</span>':'')+'<span class="badge active">🔑 Password protected</span></div>';
+ var head=multi?'📥 Incoming beam — '+m.files.length+' files':'📥 Incoming beam';
+ card.innerHTML='<div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>File<span>Beam</span></h1></div>'
+ +hd+'<h2>'+head+'</h2>'+dlInfo
+ +(multi?'<div class=flist style=margin-top:14px;text-align:left>'+rows+'</div>'
+   :'<div class=meta style=margin-top:16px><div style="font-size:20px;font-weight:700;word-break:break-all">'+escHtml(m.files?m.files[0].name:m.name)+'</div><div style=margin-top:6px>'+((m.files?m.files[0].size:m.size)>=1048576?((m.files?m.files[0].size:m.size)/1048576).toFixed(1)+' MB':Math.max(1,Math.round((m.files?m.files[0].size:m.size)/1024))+' KB')+'</div><div style=margin-top:2px;color:#fbbf24>⏳ expires '+new Date(m.exp).toLocaleTimeString()+'</div></div>'
+   +'<button class=btn id=dlBtn style="margin-top:18px" onclick="dlOne(0)">⬇️ Download now</button>')
+ +(multi?'<div class=btnrow style=margin-top:14px;justify-content:space-between><a class="btn ghost" href="javascript:dlAll()" style=width:48%>⬇️ Download All</a></div>':'')
+ +'<p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>';
+ if(!multi){window.dlOne=function(){decFile('/d/${code}/raw',escHtml(m.name),escHtml(m.type),window.location.hash.slice(1)||null,FB_PW_${code})}}
+ else{
+  var fb=(m.files||[]).map(function(f,i){return ['/d/${code}/f/'+i+'/raw',f.name,f.type]});
+  window.dlOne=function(i){decFile(fb[i][0],fb[i][1],fb[i][2],window.location.hash.slice(1)||null,FB_PW_${code})};
+  window.dlAll=function(){fb.forEach(function(f,i){decFile(f[0],f[1],f[2],window.location.hash.slice(1)||null,FB_PW_${code})})};
+ }
+ try{var sprv=sessionStorage.getItem('fb_done_${code}')||'[]';var done=JSON.parse(sprv);if(done.length)document.querySelectorAll('.frow').forEach(function(r,i){if(done.indexOf(i)>-1){r.classList.add('done');var b=r.querySelector('.dl');if(b){b.textContent='✓ Saved';b.classList.add('saved')}}})}catch(e){}
+}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+</script>`;
+}
+
 const PY_EDITION = "# Download the latest version from https://github.com/Kawshikmr/filebeam";
 
 /* ================= CLIENT APPLICATION JS ================= */
 
 const CLIENT_JS = `
-let FILE=null,UPL=null,E2E_KEY=null,PC=null,DC=null,RCODE=null;
+let FILE=null,UPL=null,E2E_KEY=null,PC=null,DC=null,RCODE=null,TRY_PW='';
 const CH=CHUNK,UPCONC=UP_CONC;
 const $=id=>document.getElementById(id);
 function show(t){$('cS').classList.toggle('hidden',t!=='s');$('cR').classList.toggle('hidden',t!=='r');
@@ -309,8 +467,11 @@ async function startP2PSender(code){
 
 /* --- Big Multi-Chunk Upload (parallel) --- */
 async function startBig(useE2ee,kObj){
- let r=await fetch('/api/beam/init',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enc:useE2ee,files:PICKED.map(p=>({name:p.name,type:p.type||'application/octet-stream',size:p.size}))})});
+ const pw=$('pwField').value.trim();
+ const maxdl=Math.max(0,Math.min(100,Number($('maxdlField').value)||0));
+ let r=await fetch('/api/beam/init',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enc:useE2ee,pw:pw,maxdl:maxdl,files:PICKED.map(p=>({name:p.name,type:p.type||'application/octet-stream',size:p.size}))})});
  let j=await r.json();if(j.err)throw new Error(j.err);
+ if(j.pw)TRY_PW=pw;
  const code=j.code;
  const tot=PICKED.reduce((a,p)=>a+p.size,0);
  const tasks=[];
@@ -347,9 +508,21 @@ function showDone(done,b64k){
  $('go').style.display='none';
  $('dCode').textContent=done.code;$('dLink').textContent=done.url;
  $('result').style.display='block';
+ $('burnBtn').style.display='';
  const qr=qrcode(0,'M');qr.addData(done.url);qr.make();
  $('qr').src=qr.createDataURL(4,8);
  startP2PSender(done.code);
+}
+async function burn(){
+ if(!UPL||!UPL.code)return;
+ if(!confirm('Delete this beam now? The link will stop working immediately.'))return;
+ const btn=$('burnBtn');btn.textContent='🔥 Burning...';btn.disabled=true;
+ try{
+  const r=await fetch('/api/beam/burn/'+UPL.code,{method:'POST',headers:rpw()?{'x-filebeam-pw':rpw()}:{}});
+  const j=await r.json();
+  if(j.ok){btn.textContent='🔥 Burned ✓';setTimeout(()=>{reset()},900)}
+  else{btn.textContent='🔥 Burn link now (delete instantly)';btn.disabled=false;alert('Could not burn: '+j.err)}
+ }catch(e){btn.textContent='🔥 Burn link now (delete instantly)';btn.disabled=false;alert('Network error')}
 }
 
 async function start(){
@@ -365,15 +538,18 @@ async function start(){
   return;
  }
  FILE=PICKED[0];
+ const pw=$('pwField').value.trim();
+ const maxdl=Math.max(0,Math.min(100,Number($('maxdlField').value)||0));
  let body=await FILE.arrayBuffer();
  if(useE2ee)body=await encSlice(body,kObj);
  const xhr=new XMLHttpRequest();
- xhr.open('POST','/api/beam?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream')+(useE2ee?'&enc=1':''));
+ xhr.open('POST','/api/beam?name='+encodeURIComponent(FILE.name)+'&type='+encodeURIComponent(FILE.type||'application/octet-stream')+(useE2ee?'&enc=1':'')+'&pw='+encodeURIComponent(pw)+'&maxdl='+maxdl);
  xhr.upload.onprogress=e=>{if(e.lengthComputable)setPct(Math.min(99,e.loaded/e.total*100))};
  xhr.onload=()=>{
   try{
    const done=JSON.parse(xhr.responseText);
    if(done.err)throw new Error(done.err);
+   if(done.pw)TRY_PW=pw;
    showDone(done,b64k);
   }catch(e){alert('Beam failed: '+e.message);reset()}
  };
@@ -382,6 +558,12 @@ async function start(){
 }
 
 let RKEY=null;
+function rpw(){
+ const p=sessionStorage.getItem('fb_pw_'+RCODE);
+ if(p)return encodeURIComponent(p);
+ if(TRY_PW)return encodeURIComponent(TRY_PW);
+ return '';
+}
 async function lookup(){
  const raw=$('code').value.trim();
  const lm=raw.match(/\\/d\\/([A-Z0-9]{6})(?:#([^\\s]+))?$/i)||raw.match(/^([A-Z0-9]{6})(?:#([^\\s]+))?$/i);
@@ -390,8 +572,16 @@ async function lookup(){
  $('rerr').style.display='none';$('rlist').innerHTML='';
  if(!/^[A-Z0-9]{6}$/.test(c)){$('rerr').textContent='Enter the 6-character code, or paste the full link you received.';$('rerr').style.display='block';return}
  let j;
- try{j=await(await fetch('/api/meta/'+c)).json()}catch(e){j={err:'network'}}
- if(j.err){$('rerr').textContent='This code expired or is wrong.';$('rerr').style.display='block';return}
+ try{j=await(await fetch('/api/meta/'+c,{headers:rpw()?{'x-filebeam-pw':rpw()}:{}})).json()}catch(e){j={err:'network'}}
+ if(j.err==='password'){
+  const pw=promptProposition(j);
+  if(pw===null)return;
+  TRY_PW=pw;
+  try{sessionStorage.setItem('fb_pw_'+c,pw)}catch(e){}
+  const retry=await(await fetch('/api/meta/'+c,{headers:{'x-filebeam-pw':encodeURIComponent(pw)}})).json();
+  if(retry.err){$('rerr').textContent='Wrong password.';$('rerr').style.display='block';return}
+  j=retry;
+ }else if(j.err){$('rerr').textContent='This code expired or is wrong.';$('rerr').style.display='block';return}
  RCODE=c;RKEY=k;
  $('dlrow').classList.add('hidden');
  const enc=!!j.enc;
@@ -399,13 +589,17 @@ async function lookup(){
   $('rlist').innerHTML='<div class=frow style="text-align:center"><div class=nm>\uD83D\uDD12 This beam is end-to-end encrypted.</div><div class=sz>Open the <b>full link</b> the sender shared (it ends with <b>#key</b>) \u2014 a code alone cannot decrypt it. Ask the sender to share the link or QR.</div></div>';
   return;
  }
+ if(j.dl){
+  const used=Number(j.dlUsed)||0;
+  if(used>=j.dl){$('rerr').textContent='This beam reached its download limit. Ask the sender for a new link.';$('rerr').style.display='block';return}
+ }
  const stos=localStorage.getItem('fb_done_'+c);const done=stos?JSON.parse(stos):[];
  function rowHtml(x,i){
   const isD=done.includes(i);
   const cls='dl'+(isD?' saved':'');
   const tag=enc
-   ? '<button class="'+cls+'" onclick="decFile(\\'/d/'+c+'/f/'+i+'/raw\\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',RKEY)">'+(isD?'&#10004; Saved':'\uD83D\uDD13 Decrypt & Download')+'</button>'
-   : '<a class="'+cls+'" href="/d/'+c+'/f/'+i+'/raw" download="'+esc(x.name)+'">'+(isD?'&#10004; Saved':'Download')+'</a>';
+   ? '<button class="'+cls+'" onclick="decFile(\\'/d/'+c+'/f/'+i+'/raw\\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',RKEY,rpw())">'+(isD?'&#10004; Saved':'\uD83D\uDD13 Decrypt & Download')+'</button>'
+   : '<button class="'+cls+'" onclick="decFile(\\'/d/'+c+'/f/'+i+'/raw\\','+JSON.stringify(x.name)+','+JSON.stringify(x.type)+',\\'\\',rpw())">'+(isD?'&#10004; Saved':'Download')+'</button>';
   return '<div class=frow data-i="'+i+'"><div class=ext style="background:'+extColor(ext(x.name))+'">'+ext(x.name).toUpperCase()+'</div><div class=nm>'+esc(x.name)+'</div><div class=sz>'+fmt(x.size)+'</div>'+tag+'</div>';
  }
  if(j.files){
@@ -419,6 +613,10 @@ async function lookup(){
   const row=t.closest?t.closest('.frow'):null;if(!row)return;
   if(t.classList&&t.classList.contains('dl'))markDl(row,Number(row.dataset.i||0));
  };
+}
+function promptProposition(j){
+ const l=prompt('\uD83D\uDD11 This beam is password protected.\nEnter the password the sender shared:');
+ return l;
 }
 function markDl(row,i){
  const st=localStorage.getItem('fb_done_'+RCODE);const d=st?JSON.parse(st):[];
@@ -478,6 +676,10 @@ function homePage(maxMb, beamCount) {
 <div class=optrow id=optRow>
 <label><input type=checkbox id=chkEnc checked> 🔒 Zero-Knowledge Encryption (AES-GCM-256)</label>
 </div>
+<div class=optrow style="justify-content:flex-start;gap:16px;flex-wrap:wrap">
+<label class=opt-inline title="Optional — receiver must enter this password to download">🔑 <input type=password id=pwField maxlength=64 placeholder="password (optional)"></label>
+<label class=opt-inline title="Stop the link working after N downloads (0 = unlimited)">🎟️ Max downloads <input type=number id=maxdlField min=0 max=100 value=0></label>
+</div>
 <div class=pbar id=bar><div id=barf></div></div>
 <button class=btn id=go disabled onclick=start()>⚡ Beam It</button>
 <div class=result id=result>
@@ -498,6 +700,7 @@ function homePage(maxMb, beamCount) {
 <img id=qr alt="QR code">
 <div class=note style=margin-top:14px>Valid 60 minutes · share code or scan QR code to receive instantly.</div>
 <button class="btn ghost" onclick=reset()>Beam Another File</button>
+<button class="btn ghost" id=burnBtn style="font-size:12px;color:#d6336c;padding:10px 16px" onclick=burn()>🔥 Burn link now (delete instantly)</button>
 </div>
 </div>
 
@@ -534,18 +737,26 @@ function receivePageScript(code, hasFiles, enc) {
   return `<script>
 function unb64url(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))}
 function toB64(buf){const u=new Uint8Array(buf);let s='';const step=0x8000;for(let i=0;i<u.length;i+=step){s+=String.fromCharCode.apply(null,u.subarray(i,i+step))}return btoa(s)}
-async function decFile(url,name,mime,key){
+async function decFile(url,name,mime,key,pw){
  const h=key||window.location.hash.slice(1);
- if(!h){if(${enc?1:0}){alert('🔒 This beam is end-to-end encrypted. Open the full link you received — it ends with the key after #. The code alone cannot decrypt it.');return;}window.location.href=url;return}
+ if(!h&&!pw){
+  if(${enc?1:0}){alert('🔒 This beam is end-to-end encrypted. Open the full link you received — it ends with the key after #. The code alone cannot decrypt it.');return;}window.location.href=url;return
+ }
  let btn;try{btn=document.getElementById('dlBtn')||(event&&event.target)}catch(e){btn=null}
- const origTxt=btn?btn.textContent:'';if(btn)btn.textContent='⏳ Decrypting...';
+ const origTxt=btn?btn.textContent:'';if(btn)btn.textContent='⏳ Downloading...';
  try{
-  const kBytes=unb64url(h);
-  const kObj=await crypto.subtle.importKey('raw',kBytes,{name:'AES-GCM'},false,['decrypt']);
-  const resp=await fetch(url);
+  const headers={};
+  if(pw)headers['x-filebeam-pw']=encodeURIComponent(pw);
+  const resp=await fetch(url,{headers:headers});
+  if(!resp.ok){throw new Error('download failed ('+resp.status+')')}
   const buf=await resp.arrayBuffer();
-  const iv=buf.slice(0,12);const ct=buf.slice(12);
-  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},kObj,ct);
+  let pt=buf;
+  if(h){
+   const kBytes=unb64url(h);
+   const kObj=await crypto.subtle.importKey('raw',kBytes,{name:'AES-GCM'},false,['decrypt']);
+   const iv=buf.slice(0,12);const ct=buf.slice(12);
+   pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},kObj,ct);
+  }
   if(window.flutter_inappwebview&&window.flutter_inappwebview.callHandler){
    try{
     await window.flutter_inappwebview.callHandler('filebeamSave',[name,mime||'application/octet-stream',toB64(new Uint8Array(pt))]);
@@ -557,7 +768,7 @@ async function decFile(url,name,mime,key){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
   if(btn){btn.textContent='✓ Downloaded';setTimeout(()=>{btn.textContent=origTxt},2000)}
  }catch(e){
-  alert('Decryption failed — invalid link key');
+  alert('Download failed — '+(e.message||'try again'));
   if(btn)btn.textContent=origTxt;
  }
 }
@@ -695,11 +906,16 @@ export default {
 
       /* ---- big-lane: init (chunked upload, multiple files ok, total ≤ MAX_BEAM) ---- */
       if (path === "/api/beam/init" && request.method === "POST") {
-        let name, type, size, files, enc = false;
+        if (!(await rl(env, request, "init-hr", RL_INIT_HR, 60 * 90))) return json({ err: "rate limit — try again in a bit" }, 429);
+        if (!(await rl(env, request, "init-day", RL_INIT_DAY, 60 * 60 * 36))) return json({ err: "daily upload limit reached for this network" }, 429);
+        if (!(await rlGlobal(env, "init", RL_GLOBAL_DAY))) return json({ err: "demo lane is very busy — try again later" }, 429);
+        let name, type, size, files, enc = false, pw = "", maxdl = 0;
         const ct = (request.headers.get("content-type") || "").toLowerCase();
         if (ct.includes("application/json")) {
           const body = await readJson(request);
           enc = Boolean(body.enc);
+          pw = String(body.pw || "").slice(0, 64);
+          maxdl = Math.min(MAX_DL_LIMIT, Math.max(0, Number(body.maxdl) || 0));
           files = Array.isArray(body.files) ? body.files : null;
           if (!files || !files.length || files.length > 100) return json({ err: "1-100 files required" }, 400);
           let total = 0;
@@ -723,14 +939,19 @@ export default {
           type = (url.searchParams.get("type") || "application/octet-stream").slice(0, 100);
           size = Number(url.searchParams.get("size") || 0);
           enc = url.searchParams.get("enc") === "1";
+          pw = (url.searchParams.get("pw") || "").slice(0, 64);
+          maxdl = Math.min(MAX_DL_LIMIT, Math.max(0, Number(url.searchParams.get("maxdl")) || 0));
           if (!size) return json({ err: "empty upload" }, 400);
           if (size > MAX_BEAM) return json({ err: `too large for this demo (max ${Math.floor(MAX_BEAM / 1048576)} MB)` }, 413);
           files = [{ name, type, size, parts: Math.ceil(size / CHUNK_BYTES) }];
         }
         const code = newCode();
         const manifest = { name, type, size, files, enc, done: false, exp: Date.now() + EXPIRE_MS };
+        if (pw) manifest.pw = true;
+        if (maxdl) manifest.dl = maxdl;
         await env.BEAM.put("m:" + code, JSON.stringify(manifest), { expirationTtl: TTL_S });
-        return json({ ok: true, code });
+        if (pw) await storePw(env, code, pw);
+        return json({ ok: true, code, pw: !!pw });
       }
 
       /* ---- big-lane: one chunk (?code=&file=&n=) ---- */
@@ -776,8 +997,13 @@ export default {
         const len = Number(request.headers.get("content-length") || 0);
         if (!len) return json({ err: "empty upload" }, 400);
         if (len > MAX_SINGLE) return json({ err: `too large for this demo (max ${Math.floor(MAX_BEAM / 1048576)} MB)` }, 413);
+        if (!(await rl(env, request, "init-hr", RL_INIT_HR, 60 * 90))) return json({ err: "rate limit — try again in a bit" }, 429);
+        if (!(await rl(env, request, "init-day", RL_INIT_DAY, 60 * 60 * 36))) return json({ err: "daily upload limit reached for this network" }, 429);
+        if (!(await rlGlobal(env, "init", RL_GLOBAL_DAY))) return json({ err: "demo lane is very busy — try again later" }, 429);
 
         let buf, name, type, enc = url.searchParams.get("enc") === "1";
+        const pw = (url.searchParams.get("pw") || "").slice(0, 64);
+        const maxdl = Math.min(MAX_DL_LIMIT, Math.max(0, Number(url.searchParams.get("maxdl")) || 0));
         const ct = (request.headers.get("content-type") || "").toLowerCase();
         if (ct.includes("multipart/form-data")) {
           const form = await request.formData();
@@ -796,15 +1022,19 @@ export default {
         if (!buf || !buf.byteLength) return json({ err: "empty upload" }, 400);
         const code = newCode();
         const manifest = { name, type, size: buf.byteLength, enc, done: true, exp: Date.now() + EXPIRE_MS };
+        if (pw) manifest.pw = true;
+        if (maxdl) manifest.dl = maxdl;
 
         await env.BEAM.put("m:" + code, JSON.stringify(manifest), { expirationTtl: TTL_S });
         await env.BEAM.put("d:" + code, buf, { expirationTtl: TTL_S });
+        if (pw) await storePw(env, code, pw);
         if (ctx) ctx.waitUntil(bumpStats(env, { beams: 1, files: 1, bytes: buf.byteLength }));
 
         return json({
           ok: true,
           code,
           url: `${url.origin}/d/${code}`,
+          pw: !!pw,
           msg: `📦 FileBeam: "${name}" — get it before it self-destructs (60 min): ${url.origin}/d/${code}`,
         });
       }
@@ -817,7 +1047,20 @@ export default {
       if (mm) {
         const m = await getManifest(env, mm[1]);
         if (!m) return json({ err: "expired" }, 410);
-        return json(m);
+        if (m.pw && !(await pwOk(env, mm[1], reqPw(request)))) return json({ err: "password" }, 401);
+        const out = { ...m };
+        if (m.dl) { out.dl = m.dl; out.dlUsed = Number(await env.BEAM.get("n:" + mm[1])) || 0; }
+        return json(out);
+      }
+
+      /* ---- burn / cancel a beam (sender-initiated) ---- */
+      const bb = path.match(/^\/api\/beam\/burn\/([A-Z0-9]{6})$/);
+      if (bb && request.method === "POST") {
+        const m = await getManifest(env, bb[1]);
+        if (!m) return json({ err: "unknown or expired beam" }, 404);
+        if (m.pw && !(await pwOk(env, bb[1], reqPw(request)))) return json({ err: "password" }, 401);
+        await burnBeam(env, bb[1], m);
+        return json({ ok: true });
       }
 
       /* ---- raw download: per-file (multi) + legacy single ---- */
@@ -825,7 +1068,9 @@ export default {
       if (df) {
         const m = await getManifest(env, df[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        if (m.pw && !(await pwOk(env, df[1], reqPw(request)))) return resp(receiveLockPage(df[1]), 401);
         if (!m.files) return resp(gonePage("This beam is an older single-file beam — use its original link."), 404);
+        if (!(await consumeDl(env, df[1], m))) return resp(gonePage("This beam hit its download limit. Ask the sender for a new link."), 410);
         const fi = Number(df[2]);
         if (fi < 0 || fi >= m.files.length) return resp(gonePage("No such file in this beam."), 404);
         if (!m.done) return resp(gonePage("This beam is still uploading — ask the sender to wait a minute."), 425);
@@ -845,6 +1090,8 @@ export default {
       if (dr) {
         const m = await getManifest(env, dr[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        if (m.pw && !(await pwOk(env, dr[1], reqPw(request)))) return resp(receiveLockPage(dr[1]), 401);
+        if (!(await consumeDl(env, dr[1], m))) return resp(gonePage("This beam hit its download limit. Ask the sender for a new link."), 410);
         if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         let data;
         if (m.files) {
@@ -879,6 +1126,8 @@ export default {
         const m = await getManifest(env, dzz[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
         if (!m.files || !m.done) return resp(gonePage("Zip download works on completed multi-file beams."), 404);
+        if (m.pw && !(await pwOk(env, dzz[1], reqPw(request)))) return resp(receiveLockPage(dzz[1]), 401);
+        if (!(await consumeDl(env, dzz[1], m))) return resp(gonePage("This beam hit its download limit. Ask the sender for a new link."), 410);
         if (ctx) ctx.waitUntil(bumpStats(env, { dls: 1 }));
         try { return await zipStreamResponse(env, dzz[1], m); }
         catch (e) { return resp(gonePage("Could not build the zip — " + e.message), 500); }
@@ -889,18 +1138,28 @@ export default {
       if (dp) {
         const m = await getManifest(env, dp[1]);
         if (!m) return resp(gonePage("This beam has expired or never existed."), 410);
+        const needsPw = m.pw && !(await pwOk(env, dp[1], reqPw(request)));
+        const dlInfo = m.dl ? `<div style=margin-top:2px;color:#fbbf24>🎟️ ${Math.max(0, m.dl - (Number(await env.BEAM.get("n:" + dp[1])) || 0))} of ${m.dl} downloads left</div>` : "";
         let body;
-        if (m.files && m.done) {
+        if (needsPw) {
+          body = `<div class="badge active" style=text-align:center>🔒 Password protected</div>
+<h2 style=margin-top:12px>This beam needs a password</h2>
+<p class=note style=margin-top:10px>Enter the password the sender shared.</p>
+<div class=pwinrow style=margin-top:16px><input id=unlockpw type=password maxlength=64 placeholder="Beam password" autocomplete=off spellcheck=false><button class=btn onclick=unlock()>Unlock</button></div>
+<div class=err id=pwerr></div>`;
+        } else if (m.files && m.done) {
           const rows = m.files.map((f, i) => `<div class=frow data-i="${i}"><div class=ext style="background:${extColorFor(f.name)}">${extOf(f.name).toUpperCase()}</div><div class=nm>${escapeHtml(f.name)}</div><div class=sz>${fmtSize(f.size)}</div><button class=dl onclick="dlOne(${i})">Download</button></div>`).join("");
           body = `<div class=badge-row style="justify-content:center;margin-bottom:14px">
 <span class="badge" id=p2pStatus style="display:none">⚡ High Speed P2P</span>
 ${m.enc ? `<span class="badge active">🔒 End-to-End Encrypted</span>` : ""}
+${m.pw ? `<span class="badge active">🔑 Password protected</span>` : ""}
 </div>
 <h2>📥 Incoming beam — ${m.files.length} file${m.files.length > 1 ? "s" : ""}</h2>
+${dlInfo}
 <div class=flist style=margin-top:14px;text-align:left>${rows}</div>
 <div class=btnrow style=margin-top:14px;justify-content:space-between>
 <a class="btn ghost" href="javascript:dlAll();" style=width:48%>⬇️ Download All</a>
-${m.files.length > 1 && !m.enc ? `<a class="btn ghost" href="/d/${dp[1]}/zip" style=width:48%>⬇️ Download All (.zip)</a>` : ""}
+${m.files.length > 1 && !m.enc && !m.pw ? `<a class="btn ghost" href="/d/${dp[1]}/zip" style=width:48%>⬇️ Download All (.zip)</a>` : ""}
 </div>
 <script>
 const FBFILES=${JSON.stringify(m.files.map((f,i)=>[`/d/${dp[1]}/f/${i}/raw`,f.name,f.type]))};
@@ -918,8 +1177,10 @@ const FBFILES=${JSON.stringify(m.files.map((f,i)=>[`/d/${dp[1]}/f/${i}/raw`,f.na
           body = `<div class=badge-row style="justify-content:center;margin-bottom:14px">
 <span class="badge" id=p2pStatus style="display:none">⚡ High Speed P2P</span>
 ${m.enc ? `<span class="badge active">🔒 End-to-End Encrypted</span>` : ""}
+${m.pw ? `<span class="badge active">🔑 Password protected</span>` : ""}
 </div>
 <h2>📥 Incoming beam</h2>
+${dlInfo}
 <div class=meta style=margin-top:16px>
 <div style="font-size:20px;font-weight:700;word-break:break-all">${escapeHtml(m.name)}</div>
 <div style=margin-top:6px>${sizeTxt}</div>
@@ -934,6 +1195,7 @@ ${m.enc ? `<span class="badge active">🔒 End-to-End Encrypted</span>` : ""}
 <div class=card style=text-align:center>
 ${body}
 </div>
+${needsPw ? pwGateScript(dp[1]) : ""}
 <p class=note style=text-align:center;margin-top:14px>Files auto-delete in 60 min · open source by <a href=https://github.com/Kawshikmr/filebeam>Kawshikmr/filebeam</a></p>
 ${FOOTER}
 ${receivePageScript(dp[1], Boolean(m.files), Boolean(m.enc))}`);
@@ -954,6 +1216,54 @@ ${receivePageScript(dp[1], Boolean(m.files), Boolean(m.enc))}`);
       if (path === "/") {
         const st = await getStats(env);
         return resp(homePage(Math.floor(MAX_BEAM / 1048576), st.beams || 0));
+      }
+
+      /* ---- privacy policy ---- */
+      if (path === "/privacy") {
+        return resp(`${SHELL("FileBeam — Privacy Policy", `
+<meta name=robots content="index, follow">
+<link rel=canonical href="https://filebeam.dpdns.org/privacy">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"FileBeam Privacy Policy","url":"https://filebeam.dpdns.org/privacy"}</script>`)}
+<div class=card style=text-align:left;max-width:720px>
+<div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>Privacy Policy</h1></div>
+<p class=note>Last updated: 2026 ${new Date().getFullYear()}</p>
+<h3 style=margin:18px 0 8px>What FileBeam stores</h3>
+<p class=note style=line-height:1.7>Files uploaded to filebeam.dpdns.org are stored encrypted (AES-GCM-256 by default). The server stores file <b>chunks, names, sizes and MIME types</b> for a maximum of <b>60 minutes</b>, then they are automatically deleted. If you turn <b>Zero-Knowledge Encryption</b> off, the server can read your file content — but it is still deleted after 60 minutes.</p>
+<h3 style=margin:18px 0 8px>What FileBeam does NOT store</h3>
+<p class=note style=line-height:1.7>No accounts, no email, no cookies, no analytics, no profiling, no personal data, no tracking of what you share between sender and receiver. The encryption key lives only in the <b>link fragment</b> (after the <code>#</code>) and never reaches the server.</p>
+<h3 style=margin:18px 0 8px>Optional extras</h3>
+<p class=note style=line-height:1.7>You may <b>protect a beam with a password</b> and/or <b>limit the number of downloads</b>. If used, FileBeam stores a salted PBKDF2-SHA256 hash of the password (not the password itself) to let receivers unlock it, and a download counter, both deleted with the beam in 60 minutes.</p>
+<h3 style=margin:18px 0 8px>What the server sees</h3>
+<p class=note style=line-height:1.7>The Cloudflare edge and the Worker see the same data any web server sees: your <b>IP address</b>, request time, and the URL path (never the <code>#</code> fragment). IP substitution or connection logs may be retained by Cloudflare per their own policy. We use aggregate, non-identifying counters only to show "beams served".</p>
+<h3 style=margin:18px 0 8px>Peer-to-peer (P2P)</h3>
+<p class=note style=line-height:1.7>When a receiver is online at the same time, FileBeam may use <b>WebRTC</b> to send files directly between devices. Those transfers use DTLS transport encryption and are not routed through the FileBeam server.</p>
+<h3 style=margin:18px 0 8px>Contact</h3>
+<p class=note style=line-height:1.7>Open an issue at <a href=https://github.com/Kawshikmr/filebeam>github.com/Kawshikmr/filebeam</a> — this service is open source (MIT).</p>
+</div>
+${FOOTER}`);
+      }
+
+      /* ---- terms of service ---- */
+      if (path === "/terms") {
+        return resp(`${SHELL("FileBeam — Terms of Service", `
+<meta name=robots content="index, follow">
+<link rel=canonical href="https://filebeam.dpdns.org/terms">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"FileBeam Terms of Service","url":"https://filebeam.dpdns.org/terms"}</script>`)}
+<div class=card style=text-align:left;max-width:720px>
+<div class=logo><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11L9.5 22L19.5 9.5H12.5L13 2Z" fill="url(#g)"/><defs><linearGradient id="g" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#6d7cff"/><stop offset="1" stop-color="#b06bff"/></linearGradient></defs></svg><h1>Terms of Service</h1></div>
+<p class=note>Last updated: 2026 ${new Date().getFullYear()}</p>
+<h3 style=margin:18px 0 8px>Acceptable use</h3>
+<p class=note style=line-height:1.7>FileBeam is a free demo service for <b>personal, legitimate file transfer</b> between devices and people. You agree not to use it to host or distribute: malware, phishing, stolen data, copyrighted material you don&apos;t own, CSAM, or anything illegal in your jurisdiction. Malicious use may be blocked.</p>
+<h3 style=margin:18px 0 8px>Service limits</h3>
+<p class=note style=line-height:1.7>This is a free, rate-limited demo lane: total beam size up to <b>${Math.floor(MAX_BEAM / 1048576)} MB</b>, up to 100 files, files auto-delete after <b>60 minutes</b>. We may refuse or revoke any beam without notice to protect the service. No file is guaranteed available.</p>
+<h3 style=margin:18px 0 8px>No warranty</h3>
+<p class=note style=line-height:1.7>FileBeam is provided &quot;as is&quot; without warranty of any kind. It may disappear, change, rate-limit or shut down at any time. Do not rely on it for critical data — the free demo lane is a convenience, not a backup.</p>
+<h3 style=margin:18px 0 8px>No data collection</h3>
+<p class=note style=line-height:1.7>No accounts, no cookies, no personal data collected. See the <a href=/privacy>Privacy Policy</a>.</p>
+<h3 style=margin:18px 0 8px>For 10 GB transfers</h3>
+<p class=note style=line-height:1.7>Download <a href=/filebeam.py>filebeam.py</a> (MIT, open source) and run <i>python filebeam.py --tunnel</i>. That runs your own private server — the terms that apply are the ones you choose.</p>
+</div>
+${FOOTER}`);
       }
 
       return resp(`${SHELL("404")}<div style=min-height:60vh;display:flex;align-items:center;width:100%>
