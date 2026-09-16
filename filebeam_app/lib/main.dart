@@ -44,6 +44,7 @@ class _FileBeamViewState extends State<FileBeamView> {
 
   static const _downloadChannel = MethodChannel('filebeam/download');
   static const _clipboardChannel = MethodChannel('filebeam/clipboard');
+  static const _saveChannel = MethodChannel('filebeam/save');
 
   Future<void> _handleDownload(DownloadStartRequest request) async {
     final filename = request.suggestedFilename;
@@ -107,6 +108,32 @@ class _FileBeamViewState extends State<FileBeamView> {
                             }
                           },
                         );
+                        controller.addJavaScriptHandler(
+                          handlerName: 'filebeamSave',
+                          callback: (args) async {
+                            final name = args.isNotEmpty ? args.first.toString() : 'file.bin';
+                            final mime = args.length > 1 ? args[1].toString() : 'application/octet-stream';
+                            final b64 = args.length > 2 ? args[2].toString() : '';
+                            if (b64.isEmpty) return 'err';
+                            if (!mounted) return 'err';
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await _saveChannel.invokeMethod(
+                                'save',
+                                {'name': name, 'mime': mime, 'base64': b64},
+                              );
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text('Saved: ${_displayName(name)}')),
+                                );
+                              }
+                              return 'ok';
+                            } catch (e) {
+                              debugPrint('save failed: $e');
+                              return 'err';
+                            }
+                          },
+                        );
                       },
                       shouldOverrideUrlLoading: (controller, navAction) async {
                         final url = navAction.request.url;
@@ -135,6 +162,11 @@ class _FileBeamViewState extends State<FileBeamView> {
                       },
                       onReceivedError: (controller, request, error) {
                         if (error.type == WebResourceErrorType.CANCELLED) return;
+                        final isMain = request.isForMainFrame ?? true;
+                        final isSite =
+                            request.url.scheme == Uri.parse(_site).scheme &&
+                                request.url.host == Uri.parse(_site).host;
+                        if (!isSite || !isMain) return;
                         if (!mounted) return;
                         setState(() => _loadFailed = true);
                       },
@@ -193,4 +225,10 @@ class _FileBeamViewState extends State<FileBeamView> {
 
 Future<void> launchExternal(Uri url) async {
   await InAppBrowser.openWithSystemBrowser(url: WebUri(url.toString()));
+}
+
+String _displayName(String name) {
+  if (name.length <= 28) return name;
+  final ext = name.contains('.') ? name.substring(name.lastIndexOf('.')) : '';
+  return '${name.substring(0, 25)}...$ext';
 }

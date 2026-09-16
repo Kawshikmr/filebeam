@@ -533,6 +533,7 @@ ${CLIENT_JS}
 function receivePageScript(code, hasFiles, enc) {
   return `<script>
 function unb64url(s){return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))}
+function toB64(buf){const u=new Uint8Array(buf);let s='';const step=0x8000;for(let i=0;i<u.length;i+=step){s+=String.fromCharCode.apply(null,u.subarray(i,i+step))}return btoa(s)}
 async function decFile(url,name,mime,key){
  const h=key||window.location.hash.slice(1);
  if(!h){if(${enc?1:0}){alert('🔒 This beam is end-to-end encrypted. Open the full link you received — it ends with the key after #. The code alone cannot decrypt it.');return;}window.location.href=url;return}
@@ -545,6 +546,13 @@ async function decFile(url,name,mime,key){
   const buf=await resp.arrayBuffer();
   const iv=buf.slice(0,12);const ct=buf.slice(12);
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},kObj,ct);
+  if(window.flutter_inappwebview&&window.flutter_inappwebview.callHandler){
+   try{
+    await window.flutter_inappwebview.callHandler('filebeamSave',[name,mime||'application/octet-stream',toB64(new Uint8Array(pt))]);
+    if(btn){btn.textContent='✓ Saved';setTimeout(()=>{btn.textContent=origTxt},2000)}
+    return;
+   }catch(e){}
+  }
   const blob=new Blob([pt],{type:mime||'application/octet-stream'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
   if(btn){btn.textContent='✓ Downloaded';setTimeout(()=>{btn.textContent=origTxt},2000)}
