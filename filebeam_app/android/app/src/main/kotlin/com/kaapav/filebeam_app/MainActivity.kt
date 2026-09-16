@@ -1,6 +1,8 @@
 package com.kaapav.filebeam_app
 
 import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -20,6 +22,17 @@ class MainActivity : FlutterActivity() {
                     }
                     val filename = call.argument<String>("filename").orEmpty()
                     enqueueDownload(url, filename)
+                    result.success(true)
+                } else {
+                    result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "filebeam/clipboard")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "copy") {
+                    val text = call.argument<String>("text").orEmpty()
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("FileBeam", text))
                     result.success(true)
                 } else {
                     result.notImplemented()

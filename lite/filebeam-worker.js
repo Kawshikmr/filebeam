@@ -243,8 +243,13 @@ function addPick(file){
 }
 function pick(files){for(const x of files)addPick(x);f.value=''}
 function rm(i){PICKED.splice(i,1);renderChips();if(!PICKED.length)$('go').disabled=true}
-function cp(w,btn){const isEnc=UPL.url.includes('#');let v=w==='code'?(isEnc?UPL.url:UPL.code):UPL.url;let lbl=w==='code'?(isEnc?'Copy Link (with key)':'Copy Code'):'Copy Link';navigator.clipboard.writeText(v);
+function cp(w,btn){const isEnc=UPL.url.includes('#');let v=w==='code'?(isEnc?UPL.url:UPL.code):UPL.url;let lbl=w==='code'?(isEnc?'Copy Link (with key)':'Copy Code'):'Copy Link';
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(v).catch(()=>cpFallback(v))}else{cpFallback(v)}
 btn.textContent='✓ Copied';setTimeout(()=>{btn.textContent=lbl},1400)}
+function cpFallback(v){
+ if(window.flutter_inappwebview&&window.flutter_inappwebview.callHandler){window.flutter_inappwebview.callHandler('filebeamClipboard',v).catch(()=>execCopy(v));return}
+ execCopy(v)}
+function execCopy(v){const t=document.createElement('textarea');t.value=v;t.style.cssText='position:fixed;left:-9999px';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t)}
 function shareWA(){window.open('https://wa.me/?text='+encodeURIComponent(UPL.msg),'_blank')}
 function shareTG(){window.open('https://t.me/share/url?url='+encodeURIComponent(UPL.url)+'&text='+encodeURIComponent('Tap the link to get the file'),'_blank')}
 function nativeShare(btn){if(navigator.share){navigator.share({title:'FileBeam',text:UPL.msg,url:UPL.url}).catch(()=>{})}else{cp('link',btn)}}
@@ -497,7 +502,7 @@ function homePage(maxMb, beamCount) {
 </div>
 
 <div id=cR class=hidden>
-<div class=inrow><input id=code maxlength=6 placeholder=CODE autocomplete=off spellcheck=false></div>
+<div class=inrow><input id=code maxlength=512 placeholder="CODE or full link" autocomplete=off spellcheck=false autocapitalize=characters></div>
 <button class=btn onclick=lookup()>Fetch Files</button>
 <div class="err" id=rerr></div>
 <div class=flist id=rlist></div>

@@ -43,6 +43,7 @@ class _FileBeamViewState extends State<FileBeamView> {
   bool _loadFailed = false;
 
   static const _downloadChannel = MethodChannel('filebeam/download');
+  static const _clipboardChannel = MethodChannel('filebeam/clipboard');
 
   Future<void> _handleDownload(DownloadStartRequest request) async {
     final filename = request.suggestedFilename;
@@ -93,6 +94,19 @@ class _FileBeamViewState extends State<FileBeamView> {
                       initialUrlRequest: URLRequest(url: WebUri(_site)),
                       onWebViewCreated: (controller) {
                         _webViewController = controller;
+                        controller.addJavaScriptHandler(
+                          handlerName: 'filebeamClipboard',
+                          callback: (args) async {
+                            final text = args.isNotEmpty ? args.first.toString() : '';
+                            try {
+                              await _clipboardChannel.invokeMethod('copy', {'text': text});
+                              return 'ok';
+                            } catch (e) {
+                              debugPrint('clipboard failed: $e');
+                              return 'err';
+                            }
+                          },
+                        );
                       },
                       shouldOverrideUrlLoading: (controller, navAction) async {
                         final url = navAction.request.url;
