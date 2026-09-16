@@ -208,7 +208,7 @@ class _FileBeamViewState extends State<FileBeamView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('FileBeam · No accounts · Auto-delete 60 min',
+              const Text('FileBeam v1.1.0 · No accounts · Auto-delete 60 min',
                   style: TextStyle(fontSize: 11, color: Colors.white38)),
             ],
           ),
