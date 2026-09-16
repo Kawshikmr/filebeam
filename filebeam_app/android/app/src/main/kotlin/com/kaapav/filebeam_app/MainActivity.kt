@@ -1,10 +1,13 @@
 package com.kaapav.filebeam_app
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -18,6 +21,11 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
+    private val saveRequestCode = 4141
+    private var pendingLegacySave: SaveJob? = null
+
+    data class SaveJob(val name: String, val mime: String, val bytes: ByteArray)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "filebeam/download")
@@ -52,8 +60,12 @@ class MainActivity : FlutterActivity() {
                     val b64 = call.argument<String>("base64").orEmpty()
                     try {
                         val bytes = Base64.decode(b64, Base64.DEFAULT)
-                        saveToDownloads(name, mime, bytes)
-                        result.success(true)
+                        val path = saveToDownloads(name, mime, bytes)
+                        if (path == "PENDING_LEGACY") {
+                            result.success("pending")
+                        } else {
+                            result.success("ok:" + path)
+                        }
                     } catch (e: Exception) {
                         result.error("SAVE_FAILED", e.message, null)
                     }
@@ -63,33 +75,72 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    private fun saveToDownloads(name: String, mime: String, bytes: ByteArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == saveRequestCode) {
+            val job = pendingLegacySave
+            pendingLegacySave = null
+            if (job != null && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    legacyWrite(job.name, job.mime, job.bytes)
+                    Toast.makeText(this, "Saved: ${job.name}", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            } else if (job != null) {
+                Toast.makeText(this, "Storage permission denied — could not save", Toast.LENGTH_LONG).show()
+            }
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    private fun sanitize(name: String): String =
+        name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim().let { if (it.isEmpty()) "file.bin" else it }
+
+    private fun saveToDownloads(name: String, mime: String, bytes: ByteArray): String {
+        val safe = sanitize(name)
         if (Build.VERSION.SDK_INT >= 29) {
+            /* MediaStore with IS_PENDING publish cycle — guarantees the file
+               shows up in Downloads / Files / SAF immediately. */
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.DISPLAY_NAME, safe)
                 put(MediaStore.Downloads.MIME_TYPE, mime)
-                put(MediaStore.Downloads.IS_PENDING, 0)
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/")
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val uri = contentResolver.insert(collection, values)
+            val uri: Uri = contentResolver.insert(collection, values)
                 ?: throw Exception("MediaStore insert failed")
             contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
                 ?: throw Exception("output stream failed")
+            val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+            contentResolver.update(uri, done, null, null)
+            return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath + "/" + safe
         } else {
-            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!dir.exists()) dir.mkdirs()
-            val target = File(dir, name)
-            var unique = target
-            var n = 1
-            val dot = name.lastIndexOf('.')
-            while (unique.exists()) {
-                val stem = if (dot > 0) name.substring(0, dot) else name
-                val ext = if (dot > 0) name.substring(dot) else ""
-                unique = File(dir, "${stem} ($n)$ext"); n++
+            /* Android 8.1 and below: need runtime WRITE_EXTERNAL_STORAGE. */
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                pendingLegacySave = SaveJob(safe, mime, bytes)
+                requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), saveRequestCode)
+                return "PENDING_LEGACY"
             }
-            FileOutputStream(unique).use { it.write(bytes) }
+            return legacyWrite(safe, mime, bytes)
         }
-        Toast.makeText(this, "Saved: $name", Toast.LENGTH_LONG).show()
+    }
+
+    private fun legacyWrite(name: String, mime: String, bytes: ByteArray): String {
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!dir.exists()) dir.mkdirs()
+        val target = File(dir, name)
+        var unique = target
+        var n = 1
+        val dot = name.lastIndexOf('.')
+        while (unique.exists()) {
+            val stem = if (dot > 0) name.substring(0, dot) else name
+            val ext = if (dot > 0) name.substring(dot) else ""
+            unique = File(dir, "${stem} ($n)$ext"); n++
+        }
+        FileOutputStream(unique).use { it.write(bytes) }
+        MediaScannerConnection.scanFile(this, arrayOf(unique.absolutePath), arrayOf(mime)) { _, _ -> }
+        return unique.absolutePath
     }
 
     private fun enqueueDownload(url: String, filename: String) {

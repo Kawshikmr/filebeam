@@ -384,7 +384,7 @@ function renderChips(){
   $('chips').classList.remove('hidden');
   $('totline').innerHTML=(PICKED.length>1?PICKED.length+' files · ':'')+'<b>'+fmt(tot)+'</b> of '+MAXBEAM+' MB';
   const remain=Math.max(0,MAXBEAM*1048576-tot);
-  $('totrm').textContent=remain?fmt(remain)+' free':'Full';
+  $('totrm').textContent=remain?Math.max(1,Math.round(remain/1048576))+' MB free':'Full';
   const pct=Math.min(100,tot/(MAXBEAM*1048576)*100);
   $('totfill').style.width=pct+'%';
   $('totgauge').classList.toggle('warn',tot>=(MAXBEAM*1048576)*0.8);
@@ -759,10 +759,11 @@ async function decFile(url,name,mime,key,pw){
   }
   if(window.flutter_inappwebview&&window.flutter_inappwebview.callHandler){
    try{
-    await window.flutter_inappwebview.callHandler('filebeamSave',[name,mime||'application/octet-stream',toB64(new Uint8Array(pt))]);
+    var r=await window.flutter_inappwebview.callHandler('filebeamSave',[name,mime||'application/octet-stream',toB64(new Uint8Array(pt))]);
+    if(r==='err'){throw new Error('app save rejected the file')}
     if(btn){btn.textContent='✓ Saved';setTimeout(()=>{btn.textContent=origTxt},2000)}
     return;
-   }catch(e){}
+   }catch(e){throw e}
   }
   const blob=new Blob([pt],{type:mime||'application/octet-stream'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();

@@ -118,16 +118,35 @@ class _FileBeamViewState extends State<FileBeamView> {
                             if (!mounted) return 'err';
                             final messenger = ScaffoldMessenger.of(context);
                             try {
-                              await _saveChannel.invokeMethod(
+                              final res =
+                                  await _saveChannel.invokeMethod<String>(
                                 'save',
                                 {'name': name, 'mime': mime, 'base64': b64},
                               );
-                              if (mounted) {
-                                messenger.showSnackBar(
-                                  SnackBar(content: Text('Saved: ${_displayName(name)}')),
-                                );
+                              if (res?.startsWith('ok') ?? false) {
+                                final path = res!.startsWith('ok:') ? res.substring(3) : null;
+                                if (mounted) {
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        path == null
+                                            ? 'Saved: ${_displayName(name)}'
+                                            : 'Saved to Downloads',
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return 'ok';
                               }
-                              return 'ok';
+                              if (res == 'pending') {
+                                if (mounted) {
+                                  messenger.showSnackBar(
+                                    const SnackBar(content: Text('Grant storage permission to save the file')),
+                                  );
+                                }
+                                return 'ok';
+                              }
+                              return 'err';
                             } catch (e) {
                               debugPrint('save failed: $e');
                               return 'err';
