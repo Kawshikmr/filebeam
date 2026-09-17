@@ -662,7 +662,7 @@ function homePage(maxMb, beamCount) {
 <div class=badge-row>
 <span class="badge" id=p2pBadge>⚡ Direct P2P Ready</span>
 <span class="badge active" id=encBadge>🔒 End-to-End Encrypted</span>
-<a class="badge app-badge" href="https://github.com/Kawshikmr/filebeam/releases/download/v1.1.0/filebeam-v1.1.0.apk" target="_blank" rel="noopener">📱 Get the Android App</a>
+<a class="badge app-badge" href="https://github.com/Kawshikmr/filebeam/releases/download/v1.1.1/filebeam-v1.1.1.apk" target="_blank" rel="noopener">📱 Get the Android App</a>
 </div>
 <div class=tabs>
 <button class="tab active" id=tS onclick=show('s')>Send</button>
