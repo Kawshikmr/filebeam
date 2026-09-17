@@ -615,7 +615,7 @@ async function lookup(){
  };
 }
 function promptProposition(j){
- const l=prompt('\uD83D\uDD11 This beam is password protected.\nEnter the password the sender shared:');
+ const l=prompt('\uD83D\uDD11 This beam is password protected. Enter the password the sender shared:');
  return l;
 }
 function markDl(row,i){
