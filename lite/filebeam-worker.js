@@ -662,7 +662,7 @@ function homePage(maxMb, beamCount) {
 <div class=badge-row>
 <span class="badge" id=p2pBadge>⚡ Direct P2P Ready</span>
 <span class="badge active" id=encBadge>🔒 End-to-End Encrypted</span>
-<a class="badge app-badge" href="https://github.com/Kawshikmr/filebeam/releases/download/v1.1.1/filebeam-v1.1.1.apk" target="_blank" rel="noopener">📱 Get the Android App</a>
+<a class="badge app-badge" href="/app.apk">📱 Get the Android App</a>
 </div>
 <div class=tabs>
 <button class="tab active" id=tS onclick=show('s')>Send</button>
@@ -829,6 +829,26 @@ export default {
           `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://filebeam.dpdns.org/</loc><changefreq>daily</changefreq><priority>1.0</priority></url></urlset>`,
           { headers: { "content-type": "application/xml;charset=utf-8", "cache-control": "public, max-age=3600" } },
         );
+      }
+
+      /* ---- Android app: served from our own domain ---- */
+      if (path === "/app.apk" || path === "/download/android" || path === "/filebeam.apk") {
+        const APK = "https://github.com/Kawshikmr/filebeam/releases/download/v1.1.1/filebeam-v1.1.1.apk";
+        const apkHeaders = {
+          "content-type": "application/vnd.android.package-archive",
+          "content-disposition": 'attachment; filename="filebeam-v1.1.1.apk"',
+          "cache-control": "public, max-age=3600",
+        };
+        if (request.method === "HEAD") return new Response(null, { status: 200, headers: apkHeaders });
+        try {
+          const up = await fetch(APK, { redirect: "follow" });
+          if (!up.ok || !up.body) throw new Error("upstream " + up.status);
+          const len = up.headers.get("content-length");
+          if (len) apkHeaders["content-length"] = len;
+          return new Response(up.body, { status: 200, headers: apkHeaders });
+        } catch (e) {
+          return Response.redirect(APK, 302);
+        }
       }
 
       /* ---- PWA Manifest & Service Worker ---- */
