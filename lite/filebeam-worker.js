@@ -375,7 +375,12 @@ drop.addEventListener('drop',e=>pick(e.dataTransfer.files));
 const extColors={pdf:'#ef4444',jpg:'#f59e0b',jpeg:'#f59e0b',png:'#10b981',gif:'#10b981',zip:'#8b5cf6',rar:'#8b5cf6',mp4:'#ec4899',mkv:'#ec4899',mp3:'#06b6d4',wav:'#06b6d4',doc:'#3b82f6',docx:'#3b82f6',xls:'#22c55e',xlsx:'#22c55e',exe:'#64748b',py:'#3b82f6',js:'#eab308',html:'#fb923c'};
 function extColor(e){return extColors[e]||'#6d7cff'}
 function ext(n){return (String(n).split('.').pop()||'bin').toLowerCase().slice(0,4)}
-function fmt(n){return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,n>>10)+' KB'}
+function fmt(n){n=Number(n)||0;
+ if(n<1024)return n+' B';
+ if(n<1048576)return tz((n/1024).toFixed(1))+' KB';
+ if(n<1073741824)return tz((n/1048576).toFixed(2))+' MB';
+ return tz((n/1073741824).toFixed(2))+' GB'}
+function tz(x){return String(parseFloat(x))}
 let PICKED=[];
 function renderChips(){
  $('chips').innerHTML=PICKED.map((p,i)=>'<div class=chip><div class=ext style="background:'+extColor(ext(p.name))+'">'+ext(p.name).toUpperCase()+'</div><div class=nm>'+esc(p.name)+'</div><div class=sz>'+fmt(p.size)+'</div><button onclick=rm('+i+')>&#10005;</button></div>').join('');
@@ -389,7 +394,7 @@ function renderChips(){
   $('totfill').style.width=pct+'%';
   $('totgauge').classList.toggle('warn',tot>=(MAXBEAM*1048576)*0.8);
   $('totbar').hidden=false;document.body.classList.add('tot-open');
- }else{$('chips').classList.add('hidden');$('totbar').hidden=true;document.body.classList.remove('tot-open')}
+ }else{$('chips').classList.add('hidden');$('totbar').hidden=true;$('totline').textContent='';$('totrm').textContent='';document.body.classList.remove('tot-open')}
 }
 function addPick(file){
  if(!file)return;
@@ -833,10 +838,10 @@ export default {
 
       /* ---- Android app: served from our own domain ---- */
       if (path === "/app.apk" || path === "/download/android" || path === "/filebeam.apk") {
-        const APK = "https://github.com/Kawshikmr/filebeam/releases/download/v1.1.1/filebeam-v1.1.1.apk";
+        const APK = "https://github.com/Kawshikmr/filebeam/releases/download/v1.1.2/filebeam-v1.1.2.apk";
         const apkHeaders = {
           "content-type": "application/vnd.android.package-archive",
-          "content-disposition": 'attachment; filename="filebeam-v1.1.1.apk"',
+          "content-disposition": 'attachment; filename="filebeam-v1.1.2.apk"',
           "cache-control": "public, max-age=3600",
         };
         if (request.method === "HEAD") return new Response(null, { status: 200, headers: apkHeaders });

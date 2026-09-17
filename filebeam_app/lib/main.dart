@@ -68,11 +68,18 @@ class _FileBeamViewState extends State<FileBeamView> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        final canGoBack = await (_webViewController?.canGoBack() ?? Future.value(false));
-        if (canGoBack) {
-          _webViewController?.goBack();
+        final controller = _webViewController;
+        if (controller == null) {
+          SystemNavigator.pop();
+          return;
+        }
+        final url = await controller.getUrl();
+        final path = url?.path ?? '';
+        final atHome = path.isEmpty || path == '/';
+        if (!atHome && await controller.canGoBack()) {
+          await controller.goBack();
         } else {
-          if (context.mounted) Navigator.of(context).pop();
+          SystemNavigator.pop();
         }
       },
       child: Scaffold(
@@ -208,7 +215,7 @@ class _FileBeamViewState extends State<FileBeamView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('FileBeam v1.1.1 · No accounts · Auto-delete 60 min',
+              const Text('FileBeam v1.1.2 · No accounts · Auto-delete 60 min',
                   style: TextStyle(fontSize: 11, color: Colors.white38)),
             ],
           ),
